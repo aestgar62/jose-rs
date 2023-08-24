@@ -12,30 +12,12 @@
 // or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-//! # jose-rs
+//! # JSON Web Key (JWK)
 //! 
-//! Javascript Object Encryption and Signing (JOSE) Library for Rust Language.
-//! 
-//! ## Supported Algorithms
-//! 
-//! ### Encryption
-//! 
-//! - RSA-OAEP
-//! - RSA-OAEP-256
-//! - RSA1_5
-//! - A128CBC-HS256
-//! - A192CBC-HS384
-//! - A256CBC-HS512
-//!     
-//! ### Signing
-//! 
-//! - RS256
+//! JSON Web Key (JWK) is a JavaScript Object Notation (JSON) data structure that represents a cryptographic key.
 //! 
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
-pub mod jwa;
-#[cfg(feature = "jwk")]
-pub mod jwk;
-#[cfg(feature = "jws")]
-pub mod jws;
+//use serde::{Deserialize, Serialize};
+

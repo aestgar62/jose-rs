@@ -6,3 +6,10 @@ edition = "2021"
 
 [dependencies]
 base64 = "0.21"
+serde = { version = "1.0", features = ["derive"] }
+zeroize = { version = "1.6", features = ["zeroize_derive"]}
+
+[features]
+default = ["jwk", "jws"]
+jwk = []
+jws = ["jwk"]
