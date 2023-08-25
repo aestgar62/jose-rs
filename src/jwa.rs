@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Enumerated algorithms for use with JSON Web Key (JWK).
+/// Enumerated algorithms for use with JSON Web Key (JWK) and JSON Web Signature(JWS).
 /// 
 /// The values used must either be registered in the IANA "JSON Web Signature and Encryption
 /// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
@@ -81,5 +81,7 @@ mod tests {
     fn test_algorithm() {
         let alg = Algorithm::HS256;
         assert_eq!(alg, Algorithm::HS256);
+        let alg = Algorithm::default();
+        assert_eq!(alg, Algorithm::None);
     }
 }
