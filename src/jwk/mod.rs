@@ -13,11 +13,29 @@
 // permissions and limitations under the License.
 
 //! # JSON Web Key (JWK)
-//! 
+//!
 //! JSON Web Key (JWK) is a JavaScript Object Notation (JSON) data structure that represents a cryptographic key.
-//! 
+//!
 
 #![deny(missing_docs)]
 
-//use serde::{Deserialize, Serialize};
+#[cfg(feature = "jwk-rsa")]
+mod rsa;
+#[cfg(feature = "jwk-rsa")]
+pub use self::rsa::RsaData;
 
+//use ptypes::Base64urlUInt;
+
+use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
+
+/// Key Type (kty) identifies the cryptographic algorithm family used with the key, such as "RSA"
+/// or "EC".
+///
+/// [RFC 7517 Section 4.1](https://datatracker.ietf.org/doc/html/rfc7517#section-4.1)
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Hash, Eq, Zeroize)]
+#[serde(tag = "kty")]
+pub enum KeyType {
+    /// RSA
+    RSA(RsaData),
+}

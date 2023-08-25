@@ -15,15 +15,21 @@
 //! # Errors
 //!
 
+/// Errors enumeration
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
+    /// Invalid URI
     InvalidUri,
+    /// RSA error
+    RSA(String),
 }
 
 impl Error {
+    /// Returns a description of the error
     pub fn description(&self) -> &str {
         match self {
             Self::InvalidUri => "Invalid URI",
+            Self::RSA(err) => err,
         }
     }
 }

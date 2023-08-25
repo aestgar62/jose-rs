@@ -6,10 +6,17 @@ edition = "2021"
 
 [dependencies]
 base64 = "0.21"
+getrandom = { version = "0.2", optional = true }
+num-bigint = { version = "0.8.2", features = ["i128", "u64_digit", "prime", "zeroize"], default-features = false, package = "num-bigint-dig", optional = true }
+num-traits = { version= "0.2.9", default-features = false, features = ["libm"], optional = true }
+ptypes = { git = "https://github.com/aestgar62/ptypes.git", version = "0.1.5" }
+rsa = { version = "0.9", optional = true, features = ["getrandom"] }
 serde = { version = "1.0", features = ["derive"] }
-zeroize = { version = "1.6", features = ["zeroize_derive"]}
+zeroize = { version = "1.6", features = ["zeroize_derive"] }
 
 [features]
-default = ["jwk", "jws"]
+default = ["jwk-rsa", "jws"]
+jwk_all = ["jwk-rsa"]
 jwk = []
 jws = ["jwk"]
+jwk-rsa = ["rsa", "jwk", "num-traits", "num-bigint", "rsa/sha2"]

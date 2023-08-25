@@ -13,17 +13,17 @@
 // permissions and limitations under the License.
 
 //! # Json Web Algorithms (JWA)
-//! 
+//!
 
 #![deny(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 
 /// Enumerated algorithms for use with JSON Web Key (JWK) and JSON Web Signature(JWS).
-/// 
+///
 /// The values used must either be registered in the IANA "JSON Web Signature and Encryption
 /// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
-/// 
+///
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq)]
 pub enum Algorithm {
     /// HMAC using SHA-256
@@ -54,7 +54,7 @@ pub enum Algorithm {
     ES384,
     /// ECDSA using secp256k1    
     ES256K,
-    /// ECDSA using P256 with Blake2 256 
+    /// ECDSA using P256 with Blake2 256
     ESBlake2b,
     /// ECDSA using secp256k1 with Blake2 256
     ESBlake2bK,

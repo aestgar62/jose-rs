@@ -13,4 +13,4 @@
 // permissions and limitations under the License.
 
 //! # Json Web Signature (JWS)
-//! 
+//!
