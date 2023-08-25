@@ -226,6 +226,18 @@ mod tests {
 
     use super::*;
 
+    use rsa::{RsaPrivateKey, RsaPublicKey};
+
     #[test]
-    fn test_rsa_data() {}
+    fn test_rsa_data() {
+        let mut rng = rand::thread_rng();
+        let bits = 2048;
+        let sk = RsaPrivateKey::new(&mut rng, bits).expect("failed to generate key");
+        let data = RsaData::try_from(&sk).expect("failed to convert to data");
+        let sk2 = RsaPrivateKey::try_from(&data).expect("failed to convert to private key");
+        assert_eq!(sk, sk2);
+        let pk = RsaPublicKey::try_from(&data).expect("failed to convert to public key");
+        let pk2 = RsaPublicKey::from(&sk2);
+        assert_eq!(pk, pk2);
+    }
 }
