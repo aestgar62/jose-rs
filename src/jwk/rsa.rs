@@ -237,7 +237,21 @@ mod tests {
         let sk2 = RsaPrivateKey::try_from(&data).expect("failed to convert to private key");
         assert_eq!(sk, sk2);
         let pk = RsaPublicKey::try_from(&data).expect("failed to convert to public key");
-        let pk2 = RsaPublicKey::from(&sk2);
+        let pk2 = sk2.to_public_key();
         assert_eq!(pk, pk2);
     }
+
+    #[test]
+    fn test_rsa_data_with_other_primes() {
+        use rsa::BigUint;
+        let n = BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
+        let e = BigUint::from_bytes_be(&[0x01, 0x00, 0x01]);
+        let d = BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
+        let p1 = BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
+        let p2 = BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
+        let primes = vec![p1, p2];
+        let sk = RsaPrivateKey::from_components(n, e, d, primes).unwrap();
+        let data = RsaData::try_from(&sk);
+        assert!(data.is_err());
+   }
 }
