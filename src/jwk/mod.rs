@@ -19,8 +19,14 @@
 
 #![deny(missing_docs)]
 
+
+#[cfg(feature = "jwk-eddsa")]
+mod eddsa;
 #[cfg(feature = "jwk-rsa")]
 mod rsa;
+
+#[cfg(feature = "jwk-eddsa")]
+pub use self::eddsa::OctetKeyPairData;
 #[cfg(feature = "jwk-rsa")]
 pub use self::rsa::RsaData;
 
@@ -36,6 +42,10 @@ use zeroize::Zeroize;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Hash, Eq, Zeroize)]
 #[serde(tag = "kty")]
 pub enum KeyType {
+    #[cfg(feature = "jwk-rsa")]
     /// RSA
     RSA(RsaData),
+    /// OKP (Octet Key Pair) - EdDSA
+    #[cfg(feature = "jwk-eddsa")]
+    OKP(OctetKeyPairData),
 }

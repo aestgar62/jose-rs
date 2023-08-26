@@ -15,6 +15,7 @@
 //! # Errors
 //!
 
+
 /// Errors enumeration
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -22,6 +23,10 @@ pub enum Error {
     InvalidUri,
     /// RSA error
     RSA(String),
+    /// Curve not implemented
+    CurveNotImplemented(String),
+    /// OKP error
+    OKP(String),
 }
 
 impl Error {
@@ -30,6 +35,8 @@ impl Error {
         match self {
             Self::InvalidUri => "Invalid URI",
             Self::RSA(err) => err,
+            Self::CurveNotImplemented(err) => err,
+            Self::OKP(err) => err,
         }
     }
 }
