@@ -15,6 +15,8 @@
 //! # Errors
 //!
 
+#![deny(missing_docs)]
+use std::error::Error as StdError;
 
 /// Errors enumeration
 #[derive(Debug, PartialEq, Eq)]
@@ -29,38 +31,46 @@ pub enum Error {
     OKP(String),
 }
 
-impl Error {
-    /// Returns a description of the error
-    pub fn description(&self) -> &str {
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::InvalidUri => "Invalid URI",
-            Self::RSA(err) => err,
-            Self::CurveNotImplemented(err) => err,
-            Self::OKP(err) => err,
+            Error::InvalidUri => write!(f, "Invalid URI"),
+            Error::RSA(string) => write!(f, "RSA Error: {}", string),
+            Error::CurveNotImplemented(string) => {
+                write!(f, "Curve not implemented: {}", string)
+            }
+            Error::OKP(string) => write!(f, "OKP Error: {}", string)
         }
     }
 }
 
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Display::fmt(self.description(), f)
-    }
-}
-
-impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        self.description()
-    }
-}
+impl StdError for Error {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_error() {
-        let err = Error::InvalidUri;
-        assert_eq!(err.description(), "Invalid URI");
+    fn test_invalid_uri() {
+        let err = Error::InvalidUri ;
         assert_eq!(err.to_string(), "Invalid URI");
+    }
+
+    #[test]
+    fn test_rsa() {
+        let err = Error::RSA("RSA Error".to_owned());
+        assert_eq!(err.to_string(), "RSA Error: RSA Error");
+    }
+
+    #[test]
+    fn test_curve_not_implemented() {
+        let err = Error::CurveNotImplemented("Ed25519".to_owned());
+        assert_eq!(err.to_string(), "Curve not implemented: Ed25519");
+    }
+
+    #[test]
+    fn test_okp() {
+        let err = Error::OKP("missing secret key".to_owned());
+        assert_eq!(err.to_string(), "OKP Error: missing secret key");
     }
 }
