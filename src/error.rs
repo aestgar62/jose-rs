@@ -28,7 +28,9 @@ pub enum Error {
     /// Curve not implemented
     CurveNotImplemented(String),
     /// OKP error
-    OKP(String),
+    OKP(String),    
+    /// EC error
+    EC(String),
 }
 
 impl std::fmt::Display for Error {
@@ -39,7 +41,8 @@ impl std::fmt::Display for Error {
             Error::CurveNotImplemented(string) => {
                 write!(f, "Curve not implemented: {}", string)
             }
-            Error::OKP(string) => write!(f, "OKP Error: {}", string)
+            Error::OKP(string) => write!(f, "OKP Error: {}", string),
+            Error::EC(string) => write!(f, "EC Error: {}", string),
         }
     }
 }
@@ -72,5 +75,11 @@ mod tests {
     fn test_okp() {
         let err = Error::OKP("missing secret key".to_owned());
         assert_eq!(err.to_string(), "OKP Error: missing secret key");
+    }
+
+    #[test]
+    fn test_ec() {
+        let err = Error::EC("missing secret key".to_owned());
+        assert_eq!(err.to_string(), "EC Error: missing secret key");
     }
 }

@@ -19,12 +19,15 @@
 
 #![deny(missing_docs)]
 
-
+#[cfg(feature = "jwk-ecdsa")]
+mod ecdsa;
 #[cfg(feature = "jwk-eddsa")]
 mod eddsa;
 #[cfg(feature = "jwk-rsa")]
 mod rsa;
 
+#[cfg(feature = "jwk-ecdsa")]
+pub use self::ecdsa::ECData;
 #[cfg(feature = "jwk-eddsa")]
 pub use self::eddsa::OctetKeyPairData;
 #[cfg(feature = "jwk-rsa")]
@@ -48,4 +51,10 @@ pub enum KeyType {
     /// OKP (Octet Key Pair) - EdDSA
     #[cfg(feature = "jwk-eddsa")]
     OKP(OctetKeyPairData),
+}
+
+#[cfg(test)]
+mod tests {
+
+
 }

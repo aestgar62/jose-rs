@@ -7,7 +7,9 @@ edition = "2021"
 [dependencies]
 base64 = "0.21"
 ed25519-dalek = { version = "2.0", optional = true }
+elliptic-curve = { version = "0.13", optional = true }
 getrandom = { version = "0.2", optional = true }
+k256 = { version = "0.13", optional = true }
 num-bigint = { version = "0.8.2", features = ["i128", "u64_digit", "prime", "zeroize"], default-features = false, package = "num-bigint-dig", optional = true }
 num-traits = { version= "0.2.9", default-features = false, features = ["libm"], optional = true }
 ptypes = { git = "https://github.com/aestgar62/ptypes.git", version = "0.1.5" }
@@ -17,10 +19,16 @@ rsa = { version = "0.9", optional = true, features = ["getrandom"] }
 serde = { version = "1.0", features = ["derive"] }
 zeroize = { version = "1.6", features = ["zeroize_derive"] }
 
+[dev.dependencies]
+serde_json = "1.0"
+   
+
 [features]
-default = ["jwk-rsa", "jwk-eddsa","jws"]
+default = ["jwk-rsa", "jwk-eddsa", "jwk-ecdsa", "jws"]
 jwk_all = ["jwk-rsa"]
 jwk = []
 jws = ["jwk"]
 jwk-rsa = ["rsa", "jwk", "num-traits", "num-bigint", "rsa/sha2", "rand"] 
 jwk-eddsa = ["ed25519-dalek", "ed25519-dalek/rand_core", "jwk", "rand_core", "rand"]
+jwk-ecdsa = ["k256", "ec", "jwk", "rand_core", "rand"]
+ec = ["elliptic-curve", "elliptic-curve/arithmetic"]
