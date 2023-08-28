@@ -21,7 +21,7 @@ rsa = { version = "0.9", optional = true, features = ["getrandom"] }
 serde = { version = "1.0", features = ["derive"] }
 zeroize = { version = "1.6", features = ["zeroize_derive"] }
 
-[dev.dependencies]
+[dev-dependencies]
 serde_json = "1.0"
    
 

@@ -54,9 +54,17 @@ impl OctetKeyPairData {
             private_key: Some(Base64urlUInt(sk.to_bytes().to_vec())),
         }
     }
+}
 
-    /// From key pair
-    pub fn from_keypair(sk: SigningKey, pk: VerifyingKey) -> Self {
+impl Default for OctetKeyPairData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<&SigningKey> for OctetKeyPairData {
+    fn from(sk: &SigningKey) -> Self {
+        let pk = sk.verifying_key();
         Self {
             curve: "Ed25519".to_owned(),
             public_key: Base64urlUInt(pk.to_bytes().to_vec()),
@@ -65,14 +73,8 @@ impl OctetKeyPairData {
     }
 }
 
-impl Default for OctetKeyPairData {
-	fn default() -> Self {
-		Self::new()
-    }
-}
-
-impl From<VerifyingKey> for OctetKeyPairData {
-    fn from(pk: VerifyingKey) -> Self {
+impl From<&VerifyingKey> for OctetKeyPairData {
+    fn from(pk: &VerifyingKey) -> Self {
         Self {
             curve: "Ed25519".to_owned(),
             public_key: Base64urlUInt(pk.to_bytes().to_vec()),
@@ -120,26 +122,38 @@ mod tests {
 
     #[test]
     fn test_octet_key_pair_data() {
-        let sk = SigningKey::from_bytes(&[
-            0x2a, 0x1c, 0x2c, 0x3d, 0x4e, 0x5f, 0x6a, 0x7b, 0x8c, 0x9d, 0x0a, 0x1b, 0x2c, 0x3d,
-            0x4e, 0x5f, 0x6a, 0x7b, 0x8c, 0x9d, 0x0a, 0x1b, 0x2c, 0x3d, 0x4e, 0x5f, 0x6a, 0x7b,
-            0x8c, 0x9d, 0x0a, 0x1b,
-        ]);
-        let pk = sk.verifying_key();
-        let okp = OctetKeyPairData::from(pk);
-        assert_eq!(okp.curve, "Ed25519");
+        let okp = OctetKeyPairData::new();
+        let pk = VerifyingKey::try_from(&okp).unwrap();
+        let sk = SigningKey::try_from(&okp).unwrap();
+        let okp2 = OctetKeyPairData::from(&sk);
+        let pk2 = VerifyingKey::try_from(&okp2).unwrap();
+        let sk2 = SigningKey::try_from(&okp2).unwrap();
+        assert_eq!(okp, okp2);
+        assert_eq!(pk, pk2);
+        assert_eq!(sk.to_bytes(), sk2.to_bytes());
+        let okp3 = OctetKeyPairData::from(&pk);
+        let sk3 = SigningKey::try_from(&okp3);
+        assert!(sk3.is_err());
     }
 
     #[test]
-    fn test_octet_key_pair_data_from_keypair() {
-        let mut csprng = OsRng;
-        let sk = SigningKey::generate(&mut csprng);
-        let pk = sk.verifying_key();
-        let okp = OctetKeyPairData::from_keypair(sk.clone(), pk);
-        assert_eq!(okp.curve, "Ed25519");
-        let sk2 = SigningKey::try_from(&okp).expect("failed to convert to private key");
-        assert_eq!(sk.to_bytes(), sk2.to_bytes());
-        let pk2 = VerifyingKey::try_from(&okp).expect("failed to convert to public key");
-        assert_eq!(pk, pk2);
+    fn test_curve_not_implemented() {
+        let mut okp = OctetKeyPairData::new();
+        okp.curve = "XX".to_owned();
+        let pk = VerifyingKey::try_from(&okp);
+        assert!(pk.is_err());
+        let sk = SigningKey::try_from(&okp);
+        assert!(sk.is_err());
+    }
+
+    #[test]
+    fn test_invalid_keys() {
+        let mut okp = OctetKeyPairData::new();
+        okp.private_key = Some(Base64urlUInt(vec![0x00]));
+        let sk = SigningKey::try_from(&okp);
+        assert!(sk.is_err());
+        okp.public_key = Base64urlUInt(vec![0x00]);
+        let pk = VerifyingKey::try_from(&okp);
+        assert!(pk.is_err());
     }
 }
