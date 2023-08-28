@@ -28,7 +28,7 @@ pub enum Error {
     /// Curve not implemented
     CurveNotImplemented(String),
     /// OKP error
-    OKP(String),    
+    OKP(String),
     /// EC error
     EC(String),
 }
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_invalid_uri() {
-        let err = Error::InvalidUri ;
+        let err = Error::InvalidUri;
         assert_eq!(err.to_string(), "Invalid URI");
     }
 

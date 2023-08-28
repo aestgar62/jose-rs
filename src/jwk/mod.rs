@@ -54,7 +54,4 @@ pub enum KeyType {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-}
+mod tests {}

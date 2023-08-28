@@ -21,7 +21,7 @@ use crate::error::Error;
 
 use ptypes::Base64urlUInt;
 
-use elliptic_curve::{PublicKey, SecretKey, CurveArithmetic, sec1::ToEncodedPoint};
+use elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -31,36 +31,38 @@ use zeroize::Zeroize;
 pub struct ECData {
     // Elliptic Curve Public Key.
     #[serde(rename = "crv")]
-	/// The curve name.
+    /// The curve name.
     pub curve: Option<String>,
-	/// The public key `x`value for the ECDSA key as a Base64urlUInt- encoded.
+    /// The public key `x`value for the ECDSA key as a Base64urlUInt- encoded.
     #[serde(rename = "x")]
     pub x_coordinate: Option<Base64urlUInt>,
-	/// The public key `y`value for the ECDSA key as a Base64urlUInt- encoded.
+    /// The public key `y`value for the ECDSA key as a Base64urlUInt- encoded.
     #[serde(rename = "y")]
     pub y_coordinate: Option<Base64urlUInt>,
 
     // Elliptic Curve Private Key.
-	/// The private key value for the ECDSA key as a Base64urlUInt- encoded.
+    /// The private key value for the ECDSA key as a Base64urlUInt- encoded.
     #[serde(rename = "d")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ec_private_key: Option<Base64urlUInt>,
 }
 
-impl ECData {
-
-	/// Create a new ECDSA key pair
-	pub fn from_key_pair<C: CurveArithmetic>(curve: &str, sk: SecretKey<C>, pk: PublicKey<C>) -> Result<Self, Error>{
-		unimplemented!()
-	}
+// Secp256k1 curve
+#[cfg(feature = "jwk-k256")]
+impl TryFrom<&k256::SecretKey> for ECData {
+    type Error = Error;
+    fn try_from(sk: &k256::SecretKey) -> Result<Self, Self::Error> {
+        let pk = sk.public_key();
+        let mut data = ECData::try_from(&pk)?;
+        data.ec_private_key = Some(Base64urlUInt(sk.to_bytes().to_vec()));
+        Ok(data)
+    }
 }
 
-// Secp256k1 curve
-
+#[cfg(feature = "jwk-k256")]
 impl TryFrom<&k256::PublicKey> for ECData {
     type Error = Error;
     fn try_from(pk: &k256::PublicKey) -> Result<Self, Self::Error> {
-        use elliptic_curve::sec1::ToEncodedPoint;
         let ec_points = pk.to_encoded_point(false);
         let x = ec_points
             .x()
@@ -77,10 +79,14 @@ impl TryFrom<&k256::PublicKey> for ECData {
     }
 }
 
+#[cfg(feature = "jwk-k256")]
 impl TryFrom<&ECData> for k256::SecretKey {
     type Error = Error;
     fn try_from(data: &ECData) -> Result<Self, Self::Error> {
-        let curve = data.curve.as_ref().ok_or(Error::EC("Missing curve".to_owned()))?;
+        let curve = data
+            .curve
+            .as_ref()
+            .ok_or(Error::EC("Missing curve".to_owned()))?;
         if curve != "secp256k1" {
             return Err(Error::CurveNotImplemented(curve.to_string()));
         }
@@ -94,11 +100,11 @@ impl TryFrom<&ECData> for k256::SecretKey {
     }
 }
 
+#[cfg(feature = "jwk-k256")]
 impl TryFrom<&ECData> for k256::PublicKey {
     type Error = Error;
     fn try_from(data: &ECData) -> Result<Self, Self::Error> {
-        use elliptic_curve::sec1::FromEncodedPoint;
-		use elliptic_curve::generic_array::GenericArray;
+        use elliptic_curve::generic_array::GenericArray;
         use k256::EncodedPoint;
         let x = data
             .x_coordinate
@@ -117,7 +123,171 @@ impl TryFrom<&ECData> for k256::PublicKey {
         if bool::from(opt.is_some()) {
             Ok(opt.unwrap())
         } else {
-            Err(Error::EC("Invalid Secp256 Public Key".to_owned()))
+            Err(Error::EC("Invalid Secp256k1 Public Key".to_owned()))
+        }
+    }
+}
+
+// P-256
+
+#[cfg(feature = "jwk-p256")]
+impl TryFrom<&p256::SecretKey> for ECData {
+    type Error = Error;
+    fn try_from(sk: &p256::SecretKey) -> Result<Self, Self::Error> {
+        let pk = sk.public_key();
+        let mut data = ECData::try_from(&pk)?;
+        data.ec_private_key = Some(Base64urlUInt(sk.to_bytes().to_vec()));
+        Ok(data)
+    }
+}
+
+#[cfg(feature = "jwk-p256")]
+impl TryFrom<&p256::PublicKey> for ECData {
+    type Error = Error;
+    fn try_from(pk: &p256::PublicKey) -> Result<Self, Self::Error> {
+        let ec_points = pk.to_encoded_point(false);
+        let x = ec_points
+            .x()
+            .ok_or_else(|| Error::EC("Missing point x".to_owned()))?;
+        let y = ec_points
+            .y()
+            .ok_or_else(|| Error::EC("Missing point y".to_owned()))?;
+        Ok(Self {
+            curve: Some("P-256".to_owned()),
+            x_coordinate: Some(Base64urlUInt(x.to_vec())),
+            y_coordinate: Some(Base64urlUInt(y.to_vec())),
+            ec_private_key: None,
+        })
+    }
+}
+
+#[cfg(feature = "jwk-p256")]
+impl TryFrom<&ECData> for p256::SecretKey {
+    type Error = Error;
+    fn try_from(data: &ECData) -> Result<Self, Self::Error> {
+        let curve = data
+            .curve
+            .as_ref()
+            .ok_or(Error::EC("Missing curve".to_owned()))?;
+        if curve != "P-256" {
+            return Err(Error::CurveNotImplemented(curve.to_string()));
+        }
+        let private_key = data
+            .ec_private_key
+            .as_ref()
+            .ok_or(Error::EC("Missing P-256 Private Key".to_owned()))?;
+        let secret_key = p256::SecretKey::from_slice(&private_key.0)
+            .map_err(|_| Error::EC("Invalid P-256 Private Key".to_owned()))?;
+        Ok(secret_key)
+    }
+}
+
+#[cfg(feature = "jwk-p256")]
+impl TryFrom<&ECData> for p256::PublicKey {
+    type Error = Error;
+    fn try_from(data: &ECData) -> Result<Self, Self::Error> {
+        use elliptic_curve::generic_array::GenericArray;
+        use p256::EncodedPoint;
+        let x = data
+            .x_coordinate
+            .as_ref()
+            .map_or(vec![], |value| value.0.clone());
+        let y = data
+            .y_coordinate
+            .as_ref()
+            .map_or(vec![], |value| value.0.clone());
+        let ep = EncodedPoint::from_affine_coordinates(
+            &GenericArray::clone_from_slice(&x),
+            &GenericArray::clone_from_slice(&y),
+            false,
+        );
+        let opt = p256::PublicKey::from_encoded_point(&ep);
+        if bool::from(opt.is_some()) {
+            Ok(opt.unwrap())
+        } else {
+            Err(Error::EC("Invalid P-256 Public Key".to_owned()))
+        }
+    }
+}
+
+// P-384
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&p384::SecretKey> for ECData {
+    type Error = Error;
+    fn try_from(sk: &p384::SecretKey) -> Result<Self, Self::Error> {
+        let pk = sk.public_key();
+        let mut data = ECData::try_from(&pk)?;
+        data.ec_private_key = Some(Base64urlUInt(sk.to_bytes().to_vec()));
+        Ok(data)
+    }
+}
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&p384::PublicKey> for ECData {
+    type Error = Error;
+    fn try_from(pk: &p384::PublicKey) -> Result<Self, Self::Error> {
+        let ec_points = pk.to_encoded_point(false);
+        let x = ec_points
+            .x()
+            .ok_or_else(|| Error::EC("Missing point x".to_owned()))?;
+        let y = ec_points
+            .y()
+            .ok_or_else(|| Error::EC("Missing point y".to_owned()))?;
+        Ok(Self {
+            curve: Some("P-384".to_owned()),
+            x_coordinate: Some(Base64urlUInt(x.to_vec())),
+            y_coordinate: Some(Base64urlUInt(y.to_vec())),
+            ec_private_key: None,
+        })
+    }
+}
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&ECData> for p384::SecretKey {
+    type Error = Error;
+    fn try_from(data: &ECData) -> Result<Self, Self::Error> {
+        let curve = data
+            .curve
+            .as_ref()
+            .ok_or(Error::EC("Missing curve".to_owned()))?;
+        if curve != "P-384" {
+            return Err(Error::CurveNotImplemented(curve.to_string()));
+        }
+        let private_key = data
+            .ec_private_key
+            .as_ref()
+            .ok_or(Error::EC("Missing P-384 Private Key".to_owned()))?;
+        let secret_key = p384::SecretKey::from_slice(&private_key.0)
+            .map_err(|_| Error::EC("Invalid P-384 Private Key".to_owned()))?;
+        Ok(secret_key)
+    }
+}
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&ECData> for p384::PublicKey {
+    type Error = Error;
+    fn try_from(data: &ECData) -> Result<Self, Self::Error> {
+        use elliptic_curve::generic_array::GenericArray;
+        use p384::EncodedPoint;
+        let x = data
+            .x_coordinate
+            .as_ref()
+            .map_or(vec![], |value| value.0.clone());
+        let y = data
+            .y_coordinate
+            .as_ref()
+            .map_or(vec![], |value| value.0.clone());
+        let ep = EncodedPoint::from_affine_coordinates(
+            &GenericArray::clone_from_slice(&x),
+            &GenericArray::clone_from_slice(&y),
+            false,
+        );
+        let opt = p384::PublicKey::from_encoded_point(&ep);
+        if bool::from(opt.is_some()) {
+            Ok(opt.unwrap())
+        } else {
+            Err(Error::EC("Invalid P-384 Public Key".to_owned()))
         }
     }
 }
@@ -125,16 +295,56 @@ impl TryFrom<&ECData> for k256::PublicKey {
 #[cfg(test)]
 mod tests {
 
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn test_ecdata_secp256k1() {
-		let sk = k256::SecretKey::random(&mut rand::thread_rng());
-		let pk = sk.public_key();
-		let data = ECData::try_from(&pk).unwrap();
-		let pk2 = k256::PublicKey::try_from(&data).unwrap();
-		assert_eq!(pk, pk2);
-		let sk2 = k256::SecretKey::try_from(&data).unwrap();
-		assert_eq!(sk, sk2);
-	}
+    #[test]
+    #[cfg(feature = "jwk-k256")]
+    fn test_ecdata_secp256k1() {
+        let sk = k256::SecretKey::random(&mut rand::thread_rng());
+        let pk = sk.public_key();
+        let data = ECData::try_from(&sk).unwrap();
+        let pk2 = k256::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = k256::SecretKey::try_from(&data).unwrap();
+        assert_eq!(sk, sk2);
+        let data = ECData::try_from(&pk).unwrap();
+        let pk2 = k256::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = k256::SecretKey::try_from(&data);
+        assert!(sk2.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "jwk-p256")]
+    fn test_ecdata_p256() {
+        let sk = p256::SecretKey::random(&mut rand::thread_rng());
+        let pk = sk.public_key();
+        let data = ECData::try_from(&sk).unwrap();
+        let pk2 = p256::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = p256::SecretKey::try_from(&data).unwrap();
+        assert_eq!(sk, sk2);
+        let data = ECData::try_from(&pk).unwrap();
+        let pk2 = p256::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = p256::SecretKey::try_from(&data);
+        assert!(sk2.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "jwk-p384")]
+    fn test_ecdata_p384() {
+        let sk = p384::SecretKey::random(&mut rand::thread_rng());
+        let pk = sk.public_key();
+        let data = ECData::try_from(&sk).unwrap();
+        let pk2 = p384::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = p384::SecretKey::try_from(&data).unwrap();
+        assert_eq!(sk, sk2);
+        let data = ECData::try_from(&pk).unwrap();
+        let pk2 = p384::PublicKey::try_from(&data).unwrap();
+        assert_eq!(pk, pk2);
+        let sk2 = p384::SecretKey::try_from(&data);
+        assert!(sk2.is_err());
+    }
 }
