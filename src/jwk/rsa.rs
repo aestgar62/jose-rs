@@ -253,7 +253,10 @@ mod tests {
             BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
         let p2 =
             BigUint::from_bytes_be(&[0x00, 0x9d, 0x9e, 0x7d, 0x7c, 0x5a, 0x7a, 0x7d, 0x7d, 0x7d]);
-        let primes = vec![p1, p2];
+        let mut primes = vec![p1];
+        let sk = RsaPrivateKey::from_components(n.clone(), e.clone(), d.clone(), primes.clone());
+        assert!(sk.is_err());
+        primes.push(p2);
         let sk = RsaPrivateKey::from_components(n, e, d, primes).unwrap();
         let data = RsaData::try_from(&sk);
         assert!(data.is_err());

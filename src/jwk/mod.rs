@@ -21,17 +21,21 @@
 
 #[cfg(feature = "jwk-ecdsa")]
 mod ecdsa;
-#[cfg(feature = "jwk-eddsa")]
-mod eddsa;
+#[cfg(feature = "jwk-okp")]
+mod okp;
 #[cfg(feature = "jwk-rsa")]
 mod rsa;
+#[cfg(feature = "jwk-oct")]
+mod symmetric;
 
 #[cfg(feature = "jwk-ecdsa")]
 pub use self::ecdsa::ECData;
-#[cfg(feature = "jwk-eddsa")]
-pub use self::eddsa::OctetKeyPairData;
+#[cfg(feature = "jwk-okp")]
+pub use self::okp::OctetKeyPairData;
 #[cfg(feature = "jwk-rsa")]
 pub use self::rsa::RsaData;
+#[cfg(feature = "jwk-oct")]
+pub use self::symmetric::SymmetricKeysData;
 
 //use ptypes::Base64urlUInt;
 
@@ -45,12 +49,20 @@ use zeroize::Zeroize;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Hash, Eq, Zeroize)]
 #[serde(tag = "kty")]
 pub enum KeyType {
-    #[cfg(feature = "jwk-rsa")]
     /// RSA
+    #[cfg(feature = "jwk-rsa")]
     RSA(RsaData),
     /// OKP (Octet Key Pair) - EdDSA
     #[cfg(feature = "jwk-eddsa")]
+    #[serde(rename = "okp")]
     OKP(OctetKeyPairData),
+    /// EC
+    #[cfg(feature = "jwk-ecdsa")]
+    EC(ECData),
+    /// Symmetric Keys
+    #[cfg(feature = "jwk-oct")]
+    #[serde(rename = "oct")]
+    OCT(SymmetricKeysData),
 }
 
 #[cfg(test)]

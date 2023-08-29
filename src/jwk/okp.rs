@@ -44,7 +44,8 @@ pub struct OctetKeyPairData {
 
 impl OctetKeyPairData {
     /// Create a new EdDSA key pair
-    pub fn new() -> Self {
+    #[cfg(feature = "jwk-eddsa")]
+    pub fn create_ed25519() -> Self {
         let mut csprng = OsRng;
         let sk = SigningKey::generate(&mut csprng);
         let pk = sk.verifying_key();
@@ -56,12 +57,7 @@ impl OctetKeyPairData {
     }
 }
 
-impl Default for OctetKeyPairData {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
+#[cfg(feature = "jwk-eddsa")]
 impl From<&SigningKey> for OctetKeyPairData {
     fn from(sk: &SigningKey) -> Self {
         let pk = sk.verifying_key();
@@ -73,6 +69,7 @@ impl From<&SigningKey> for OctetKeyPairData {
     }
 }
 
+#[cfg(feature = "jwk-eddsa")]
 impl From<&VerifyingKey> for OctetKeyPairData {
     fn from(pk: &VerifyingKey) -> Self {
         Self {
@@ -83,6 +80,7 @@ impl From<&VerifyingKey> for OctetKeyPairData {
     }
 }
 
+#[cfg(feature = "jwk-eddsa")]
 impl TryFrom<&OctetKeyPairData> for VerifyingKey {
     type Error = Error;
     fn try_from(data: &OctetKeyPairData) -> Result<Self, Self::Error> {
@@ -97,6 +95,7 @@ impl TryFrom<&OctetKeyPairData> for VerifyingKey {
     }
 }
 
+#[cfg(feature = "jwk-eddsa")]
 impl TryFrom<&OctetKeyPairData> for SigningKey {
     type Error = Error;
     fn try_from(data: &OctetKeyPairData) -> Result<Self, Self::Error> {
@@ -121,8 +120,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_octet_key_pair_data() {
-        let okp = OctetKeyPairData::new();
+    #[cfg(feature = "jwk-eddsa")]
+    fn test_octet_key_pair_data_ed25519() {
+        let okp = OctetKeyPairData::create_ed25519();
         let pk = VerifyingKey::try_from(&okp).unwrap();
         let sk = SigningKey::try_from(&okp).unwrap();
         let okp2 = OctetKeyPairData::from(&sk);
@@ -137,8 +137,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "jwk-eddsa")]
     fn test_curve_not_implemented() {
-        let mut okp = OctetKeyPairData::new();
+        let mut okp = OctetKeyPairData::create_ed25519();
         okp.curve = "XX".to_owned();
         let pk = VerifyingKey::try_from(&okp);
         assert!(pk.is_err());
@@ -147,8 +148,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "jwk-eddsa")]
     fn test_invalid_keys() {
-        let mut okp = OctetKeyPairData::new();
+        let mut okp = OctetKeyPairData::create_ed25519();
         okp.private_key = Some(Base64urlUInt(vec![0x00]));
         let sk = SigningKey::try_from(&okp);
         assert!(sk.is_err());
