@@ -18,13 +18,14 @@
 #![deny(missing_docs)]
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 /// Enumerated algorithms for use with JSON Web Key (JWK) and JSON Web Signature(JWS).
 ///
 /// The values used must either be registered in the IANA "JSON Web Signature and Encryption
 /// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
 ///
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq, Zeroize)]
 pub enum Algorithm {
     /// HMAC using SHA-256
     HS256,
@@ -38,12 +39,12 @@ pub enum Algorithm {
     RS384,
     /// RSASSA-PKCS1-v1_5 using SHA-512
     RS512,
-    /// ECDSA using P-256 and SHA-256
+    /// ECDSA using P-256
     PS256,
-    /// ECDSA using P-384 and SHA-384
+    /// ECDSA using P-384
     PS384,
-    /// ECDSA using P-521 and SHA-512
-    PS512,
+    /// ECDSA using P-521
+    PS521,
     /// EdDSA using Ed25519
     EdDSA,
     /// EdDSA using Ed25519 with Blake2 256

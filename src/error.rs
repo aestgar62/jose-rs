@@ -31,6 +31,8 @@ pub enum Error {
     OKP(String),
     /// EC error
     EC(String),
+    /// OCT error
+    OCT(String),
 }
 
 impl std::fmt::Display for Error {
@@ -43,6 +45,7 @@ impl std::fmt::Display for Error {
             }
             Error::OKP(string) => write!(f, "OKP Error: {}", string),
             Error::EC(string) => write!(f, "EC Error: {}", string),
+            Error::OCT(string) => write!(f, "OCT Error: {}", string),
         }
     }
 }
@@ -81,5 +84,11 @@ mod tests {
     fn test_ec() {
         let err = Error::EC("missing secret key".to_owned());
         assert_eq!(err.to_string(), "EC Error: missing secret key");
+    }
+
+    #[test]
+    fn test_oct() {
+        let err = Error::OCT("missing secret key".to_owned());
+        assert_eq!(err.to_string(), "OCT Error: missing secret key");
     }
 }

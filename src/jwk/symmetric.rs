@@ -32,6 +32,14 @@ pub struct SymmetricKeysData {
     pub key: Base64urlUInt,
 }
 
+impl Default for SymmetricKeysData {
+    fn default() -> Self {
+        Self {
+            key: Base64urlUInt(Vec::new()),
+        }
+    }
+}
+
 impl From<&[u8]> for SymmetricKeysData {
     fn from(key: &[u8]) -> Self {
         Self {
