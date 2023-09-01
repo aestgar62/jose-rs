@@ -20,13 +20,13 @@
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-/// Enumerated algorithms for use with JSON Web Key (JWK) and JSON Web Signature(JWS).
+/// Enumerated algorithms for use with JSON Web Signature(JWS).
 ///
 /// The values used must either be registered in the IANA "JSON Web Signature and Encryption
 /// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
 ///
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq, Zeroize)]
-pub enum Algorithm {
+pub enum SignatureAlgorithm {
     /// HMAC using SHA-256
     HS256,
     /// HMAC using SHA-384
@@ -68,7 +68,121 @@ pub enum Algorithm {
     None,
 }
 
-impl Default for Algorithm {
+impl Default for SignatureAlgorithm {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// Enumerated algorithms for use with JSON Web Encryption(JWE).
+///
+/// The values used must either be registered in the IANA "JSON Web Signature and Encryption
+/// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
+///
+/// [RFC7518 Section 4.1](https://tools.ietf.org/html/rfc7518#section-4.1)
+///
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq, Zeroize)]
+pub enum JweAlgorithm {
+    /// RSA with PKCS1 padding using SHA-1
+    RSA1_5,
+    /// RSA with OAEP
+    #[serde(rename = "RSA-OAEP")]
+    RSAOAEP,
+    /// RSA with OAEP padding using SHA-1 and MGF1 with SHA-1
+    #[serde(rename = "RSA-OAEP-256")]
+    RSAOAEP256,
+    /// AES Key Wrap with default initial value using 128-bit key
+    A128KW,
+    /// AES Key Wrap with default initial value using 192-bit key
+    A192KW,
+    /// AES Key Wrap with default initial value using 256-bit key
+    A256KW,
+    /// Direct use of a shared symmetric key as the CEK
+    #[serde(rename = "dir")]
+    Dir,
+    /// Elliptic Curve Diffie-Hellman Ephemeral Static key agreement using Concat KDF
+    #[serde(rename = "ECDH-ES")]
+    ECDHES,
+    /// ECDH-ES using Concat KDF and CEK wrapped with "A128KW"
+    #[serde(rename = "ECDH-ES+A128KW")]
+    ECDHESA128KW,
+    /// ECDH-ES using Concat KDF and CEK wrapped with "A192KW"
+    #[serde(rename = "ECDH-ES+A192KW")]
+    ECDHESA192KW,
+    /// ECDH-ES using Concat KDF and CEK wrapped with "A256KW"
+    #[serde(rename = "ECDH-ES+A256KW")]
+    ECDHESA256KW,
+    /// Key wrapping with AES GCM using 128-bit key
+    #[serde(rename = "A128GCMKW")]
+    A128GCMKW,
+    /// Key wrapping with AES GCM using 192-bit key
+    #[serde(rename = "A192GCMKW")]
+    A192GCMKW,
+    /// Key wrapping with AES GCM using 256-bit key
+    #[serde(rename = "A256GCMKW")]
+    A256GCMKW,
+    /// PBES2 with HMAC SHA-256 and "A128KW" wrapping
+    #[serde(rename = "PBES2-HS256+A128KW")]
+    PBES2HS256A128KW,
+    /// PBES2 with HMAC SHA-384 and "A192KW" wrapping
+    #[serde(rename = "PBES2-HS384+A192KW")]
+    PBES2HS384A192KW,
+    /// PBES2 with HMAC SHA-512 and "A256KW" wrapping
+    #[serde(rename = "PBES2-HS512+A256KW")]
+    PBES2HS512A256KW,
+    /// None algorithm
+    #[serde(rename = "none", alias = "None")]
+    None,
+}
+
+impl Default for JweAlgorithm {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// Enumerated algorithms for Content Encryption Algorithms for use with JSON Web Encryption(JWE).
+///
+/// The values used must either be registered in the IANA "JSON Web Signature and Encryption
+/// Algorithms" registry established by [JWA] or be a value that contains a Collision-Resistant Name.
+///
+/// [RFC7518 Section 5.1](https://tools.ietf.org/html/rfc7518#section-5.1)
+///
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Hash, Eq, Zeroize)]
+pub enum EncryptionAlgorithm {
+    /// AES_128_CBC_HMAC_SHA_256 authenticated encryption algorithm
+    /// using a 128 bit key, with HMAC-SHA-256 for authentication
+    #[serde(rename = "A128CBC-HS256")]
+    A128CBCHS256,
+    /// AES_192_CBC_HMAC_SHA_384 authenticated encryption algorithm
+    /// using a 192 bit key, with HMAC-SHA-384 for authentication
+    #[serde(rename = "A192CBC-HS384")]
+    A192CBCHS384,
+    /// AES_256_CBC_HMAC_SHA_512 authenticated encryption algorithm
+    /// using a 256 bit key, with HMAC-SHA-512 for authentication
+    #[serde(rename = "A256CBC-HS512")]
+    A256CBCHS512,
+    /// AES in Galois/Counter Mode (GCM) (128 bit key) with 128 bit tag
+    A128GCM,
+    /// AES in Galois/Counter Mode (GCM) (192 bit key) with 192 bit tag
+    A192GCM,
+    /// AES in Galois/Counter Mode (GCM) (256 bit key) with 256 bit tag
+    A256GCM,
+    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 96 bit nonce.
+    #[serde(rename = "C20P")]
+    C20P,
+    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 192 bit nonce.
+    #[serde(rename = "C20P192")]
+    C20P192,
+    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 256 bit nonce.
+    #[serde(rename = "C20P256")]
+    C20P256,
+    /// None algorithm
+    #[serde(rename = "none", alias = "None")]
+    None,
+}
+
+impl Default for EncryptionAlgorithm {
     fn default() -> Self {
         Self::None
     }
@@ -79,10 +193,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_algorithm() {
-        let alg = Algorithm::HS256;
-        assert_eq!(alg, Algorithm::HS256);
-        let alg = Algorithm::default();
-        assert_eq!(alg, Algorithm::None);
+    fn test_signature_algorithm() {
+        let alg = SignatureAlgorithm::HS256;
+        assert_eq!(alg, SignatureAlgorithm::HS256);
+        let alg = SignatureAlgorithm::default();
+        assert_eq!(alg, SignatureAlgorithm::None);
+    }
+
+    #[test]
+    fn test_jwe_algorithm() {
+        let alg = JweAlgorithm::RSA1_5;
+        assert_eq!(alg, JweAlgorithm::RSA1_5);
+        let alg = JweAlgorithm::default();
+        assert_eq!(alg, JweAlgorithm::None);
+    }
+
+    #[test]
+    fn test_encryption_algorithm() {
+        let alg = EncryptionAlgorithm::A128CBCHS256;
+        assert_eq!(alg, EncryptionAlgorithm::A128CBCHS256);
+        let alg = EncryptionAlgorithm::default();
+        assert_eq!(alg, EncryptionAlgorithm::None);
     }
 }

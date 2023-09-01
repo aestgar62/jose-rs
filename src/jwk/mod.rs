@@ -36,7 +36,7 @@ pub use self::rsa_jwk::RsaData;
 #[cfg(feature = "jwk-oct")]
 pub use self::symmetric::SymmetricKeysData;
 
-use crate::{jwa::Algorithm, Error};
+use crate::{jwa::SignatureAlgorithm, Error};
 use ptypes::Base64urlUInt;
 
 use serde::{Deserialize, Serialize};
@@ -112,7 +112,7 @@ pub struct Jwk {
     /// [RFC 7517 Section 4.4](https://datatracker.ietf.org/doc/html/rfc7517#section-4.4).
     #[serde(rename = "alg")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub algorithm: Option<Algorithm>,
+    pub algorithm: Option<SignatureAlgorithm>,
 
     /// The "kid" (key ID) parameter is used to match a specific key.  This is used, for instance,
     /// to choose among a set of keys within a JWK Set during key rollover.

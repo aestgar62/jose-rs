@@ -23,6 +23,10 @@ use std::error::Error as StdError;
 pub enum Error {
     /// Invalid URI
     InvalidUri,
+    /// Encode error
+    Encode(String),
+    /// Decode error
+    Decode(String),
     /// RSA error
     RSA(String),
     /// Curve not implemented
@@ -33,12 +37,16 @@ pub enum Error {
     EC(String),
     /// OCT error
     OCT(String),
+    /// Random error
+    Random(String),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::InvalidUri => write!(f, "Invalid URI"),
+            Error::Encode(string) => write!(f, "Encode Error: {}", string),
+            Error::Decode(string) => write!(f, "Decode Error: {}", string),
             Error::RSA(string) => write!(f, "RSA Error: {}", string),
             Error::CurveNotImplemented(string) => {
                 write!(f, "Curve not implemented: {}", string)
@@ -46,6 +54,7 @@ impl std::fmt::Display for Error {
             Error::OKP(string) => write!(f, "OKP Error: {}", string),
             Error::EC(string) => write!(f, "EC Error: {}", string),
             Error::OCT(string) => write!(f, "OCT Error: {}", string),
+            Error::Random(string) => write!(f, "Random Error: {}", string),
         }
     }
 }
@@ -90,5 +99,23 @@ mod tests {
     fn test_oct() {
         let err = Error::OCT("missing secret key".to_owned());
         assert_eq!(err.to_string(), "OCT Error: missing secret key");
+    }
+
+    #[test]
+    fn test_encode() {
+        let err = Error::Encode("error".to_owned());
+        assert_eq!(err.to_string(), "Encode Error: error");
+    }
+
+    #[test]
+    fn test_decode() {
+        let err = Error::Decode("error".to_owned());
+        assert_eq!(err.to_string(), "Decode Error: error");
+    }
+
+    #[test]
+    fn test_random() {
+        let err = Error::Random("error".to_owned());
+        assert_eq!(err.to_string(), "Random Error: error");
     }
 }

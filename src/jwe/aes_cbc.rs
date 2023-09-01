@@ -12,36 +12,9 @@
 // or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-//! # jose-rs
-//!
-//! Javascript Object Encryption and Signing (JOSE) Library for Rust Language.
-//!
-//! ## Supported Algorithms
-//!
-//! ### Encryption
-//!
-//! - RSA-OAEP
-//! - RSA-OAEP-256
-//! - RSA1_5
-//! - A128CBC-HS256
-//! - A192CBC-HS384
-//! - A256CBC-HS512
-//!     
-//! ### Signing
-//!
-//! - RS256
+//! # Advanced Encryption Standard (AES) with Cipher Block Chaining (CBC) Mode
 //!
 
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
-pub mod error;
-pub mod jwa;
-#[cfg(feature = "jwe")]
-pub mod jwe;
-#[cfg(feature = "jwk")]
-pub mod jwk;
-#[cfg(feature = "jws")]
-pub mod jws;
-pub mod utils;
-
-pub use error::Error;
+use crate::Error;
