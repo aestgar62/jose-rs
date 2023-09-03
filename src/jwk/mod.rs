@@ -262,6 +262,16 @@ impl Jwk {
         })
     }
 
+    /// Create a new JWK with Symmetric Key.
+    #[cfg(feature = "jwk-oct")]
+    pub fn create_oct(bytes: &[u8]) -> Result<Self, Error> {
+        let data = SymmetricKeysData::from(bytes);
+        Ok(Self {
+            key_type: KeyType::OCT(data),
+            ..Default::default()
+        })
+    }
+
     /// Returns the key type
     pub fn key_type(&self) -> &'static str {
         self.key_type.key_type()
@@ -347,6 +357,16 @@ mod tests {
     #[cfg(feature = "jwk-hmac")]
     fn test_oct_hmac512() {
         let jwk = Jwk::create_oct_hmac512("secret".as_bytes()).unwrap();
+        let jwk_json = serde_json::to_string(&jwk).unwrap();
+        let jwk_de: Jwk = serde_json::from_str(&jwk_json).unwrap();
+        assert_eq!(jwk, jwk_de);
+        assert_eq!(jwk.key_type(), "oct");
+    }
+
+    #[test]
+    #[cfg(feature = "jwk-oct")]
+    fn test_oct() {
+        let jwk = Jwk::create_oct("secret".as_bytes()).unwrap();
         let jwk_json = serde_json::to_string(&jwk).unwrap();
         let jwk_de: Jwk = serde_json::from_str(&jwk_json).unwrap();
         assert_eq!(jwk, jwk_de);

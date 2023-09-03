@@ -6,10 +6,12 @@ edition = "2021"
 
 [dependencies]
 aes = { version = "0.8", optional = true }
+aes-kw = { version = "0.2", optional = true }
 base64 = "0.21"
 cbc = { version = "0.1", optional = true }
 ed25519-dalek = { version = "2.0", optional = true }
 elliptic-curve = { version = "0.13", optional = true }
+generic-array = "0.14"
 getrandom = "0.2"
 k256 = { version = "0.13", optional = true }
 hmac = { version = "0.12", optional = true }
@@ -24,6 +26,7 @@ rand_core = { version = "0.6", optional = true }
 rsa = { version = "0.9", optional = true, features = ["getrandom"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha1 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
 zeroize = { version = "1.6", features = ["zeroize_derive"] }
 
@@ -31,13 +34,13 @@ zeroize = { version = "1.6", features = ["zeroize_derive"] }
    
 
 [features]
-default = ["jwk-rsa", "jwk-okp", "jwk-ecdsa-all", "jwk-hmac", "jws", "jwe", "jwe-aes-hmac", "aes-cbc"]
+default = ["jwk-rsa", "jwk-okp", "jwk-ecdsa-all", "jwk-hmac", "jws", "jwe", "jwe-aes-hmac", "aes-cbc", "jwe-aes-kw"]
 jwk-all = ["jwk-rsa"]
 jwk-ecdsa-all = ["jwk-k256", "jwk-p256", "jwk-p384", "jwk-p521"]
 jwk = []
 jws = ["jwk"]
 jwe = ["jwk"]
-jwk-rsa = ["rsa", "jwk", "num-traits", "num-bigint", "rsa/sha2", "rand"] 
+jwk-rsa = ["rsa", "jwk", "num-traits", "num-bigint", "rsa/sha2", "rand", "sha1"] 
 jwk-eddsa = ["ed25519-dalek", "ed25519-dalek/rand_core", "jwk", "rand_core", "rand"]
 jwk-k256 = ["k256", "jwk-ecdsa", "rand_core", "rand"]
 jwk-p256 = ["p256", "jwk-ecdsa"]
@@ -48,4 +51,6 @@ jwk-okp = ["jwk-eddsa"]
 jwk-oct = ["jwk"]
 jwk-hmac = ["jwk-oct", "hmac", "sha2"]
 jwe-aes-hmac = ["jwe","jwk-oct", "aes", "cbc", "hmac", "sha2"]    
-aes-cbc = ["aes", "cbc"]
+aes-cbc = ["aes", "cbc", "cbc/alloc"]
+jwe-aes = ["jwe", "jwk-oct", "aes"]
+jwe-aes-kw = ["jwe-aes", "aes-kw", "aes-kw/alloc"]

@@ -23,6 +23,12 @@ use std::error::Error as StdError;
 pub enum Error {
     /// Invalid URI
     InvalidUri,
+    /// Invalid Key
+    InvalidKey(String),
+    /// Encrypt error
+    Encrypt(String),
+    /// Decrypt error
+    Decrypt(String),
     /// Encode error
     Encode(String),
     /// Decode error
@@ -39,6 +45,8 @@ pub enum Error {
     OCT(String),
     /// Random error
     Random(String),
+    /// Unimplementd algorithm
+    UnimplementedAlgorithm(String),
 }
 
 impl std::fmt::Display for Error {
@@ -55,6 +63,12 @@ impl std::fmt::Display for Error {
             Error::EC(string) => write!(f, "EC Error: {}", string),
             Error::OCT(string) => write!(f, "OCT Error: {}", string),
             Error::Random(string) => write!(f, "Random Error: {}", string),
+            Error::Encrypt(string) => write!(f, "Invalid Key: {}", string),
+            Error::Decrypt(string) => write!(f, "Invalid Key: {}", string),
+            Error::UnimplementedAlgorithm(string) => {
+                write!(f, "Unimplemented algorithm: {}", string)
+            }
+            Error::InvalidKey(string) => write!(f, "Invalid Key: {}", string),
         }
     }
 }
@@ -117,5 +131,29 @@ mod tests {
     fn test_random() {
         let err = Error::Random("error".to_owned());
         assert_eq!(err.to_string(), "Random Error: error");
+    }
+
+    #[test]
+    fn test_encrypt() {
+        let err = Error::Encrypt("error".to_owned());
+        assert_eq!(err.to_string(), "Invalid Key: error");
+    }
+
+    #[test]
+    fn test_decrypt() {
+        let err = Error::Decrypt("error".to_owned());
+        assert_eq!(err.to_string(), "Invalid Key: error");
+    }
+
+    #[test]
+    fn test_unimplemented_algorithm() {
+        let err = Error::UnimplementedAlgorithm("error".to_owned());
+        assert_eq!(err.to_string(), "Unimplemented algorithm: error");
+    }
+
+    #[test]
+    fn test_invalid_key() {
+        let err = Error::InvalidKey("error".to_owned());
+        assert_eq!(err.to_string(), "Invalid Key: error");
     }
 }

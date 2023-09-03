@@ -20,6 +20,8 @@
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
+use std::fmt;
+
 /// Enumerated algorithms for use with JSON Web Signature(JWS).
 ///
 /// The values used must either be registered in the IANA "JSON Web Signature and Encryption
@@ -138,6 +140,31 @@ pub enum JweAlgorithm {
 impl Default for JweAlgorithm {
     fn default() -> Self {
         Self::None
+    }
+}
+
+impl fmt::Display for JweAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::RSA1_5 => write!(f, "RSA1_5"),
+            Self::RSAOAEP => write!(f, "RSA-OAEP"),
+            Self::RSAOAEP256 => write!(f, "RSA-OAEP-256"),
+            Self::A128KW => write!(f, "A128KW"),
+            Self::A192KW => write!(f, "A192KW"),
+            Self::A256KW => write!(f, "A256KW"),
+            Self::Dir => write!(f, "dir"),
+            Self::ECDHES => write!(f, "ECDH-ES"),
+            Self::ECDHESA128KW => write!(f, "ECDH-ES+A128KW"),
+            Self::ECDHESA192KW => write!(f, "ECDH-ES+A192KW"),
+            Self::ECDHESA256KW => write!(f, "ECDH-ES+A256KW"),
+            Self::A128GCMKW => write!(f, "A128GCMKW"),
+            Self::A192GCMKW => write!(f, "A192GCMKW"),
+            Self::A256GCMKW => write!(f, "A256GCMKW"),
+            Self::PBES2HS256A128KW => write!(f, "PBES2-HS256+A128KW"),
+            Self::PBES2HS384A192KW => write!(f, "PBES2-HS384+A192KW"),
+            Self::PBES2HS512A256KW => write!(f, "PBES2-HS512+A256KW"),
+            Self::None => write!(f, "none"),
+        }
     }
 }
 
