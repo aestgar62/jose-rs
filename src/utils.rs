@@ -22,6 +22,9 @@ use crate::Error;
 use base64::{engine::general_purpose, Engine as _};
 use serde::{de::DeserializeOwned, Serialize};
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
 /// Serialize to base64 encoded json.
 pub fn base64_encode_json<T: Serialize>(object: &T) -> Result<String, Error> {
     let json = serde_json::to_string(&object)
@@ -38,9 +41,46 @@ pub fn base64_decode_json<T: DeserializeOwned>(input: &str) -> Result<T, Error> 
         .map_err(|_| Error::Decode("serde json deserialize error".to_owned()))
 }
 
-/// Generate a random 32-byte array.
-pub fn generate_random_bytes() -> Result<[u8; 32], Error> {
-    let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes).map_err(|_| Error::Random("getrandom error".to_owned()))?;
-    Ok(bytes)
+/// Generate HMAC.
+pub fn generate_hmac(key: &[u8], msg: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)
+        .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
+    mac.update(msg);
+    let result = mac.finalize().into_bytes();
+    Ok(result[..16].to_vec())
+}
+
+/// Validate HMAC.
+pub fn validate_hmac(key: &[u8], msg: &[u8], at: &[u8]) -> Result<(), Error> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)
+        .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
+    mac.update(msg);
+    let result = mac.finalize().into_bytes();
+    if result[..16] != at[..] {
+        return Err(Error::Decrypt("Invalid Authentication Tag".to_owned()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_base64_encode_json() {
+        let object = vec![1, 2, 3];
+        let encoded = base64_encode_json(&object).unwrap();
+        assert_eq!(encoded, "WzEsMiwzXQ");
+    }
+
+    #[test]
+    fn test_base64_decode_json() {
+        let encoded = "WzEsMiwzXQ";
+        let decoded: Vec<u8> = base64_decode_json(encoded).unwrap();
+        assert_eq!(decoded, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_hmac() {}
 }

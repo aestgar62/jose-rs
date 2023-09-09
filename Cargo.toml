@@ -5,7 +5,9 @@ authors = ["Antonio Estévez <aestgar62@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+aead = { version = "0.5"}
 aes = { version = "0.8", optional = true }
+aes-gcm = { version = "0.10", optional = true }
 aes-kw = { version = "0.2", optional = true }
 base64 = "0.21"
 cbc = { version = "0.1", optional = true }
@@ -20,7 +22,7 @@ num-traits = { version= "0.2.9", default-features = false, features = ["libm"], 
 p256 = { version = "0.13", optional = true }
 p384 = { version = "0.13", optional = true }
 p521 = { version = "0.13", optional = true }
-ptypes = { git = "https://github.com/aestgar62/ptypes.git", version = "0.1.5" }
+ptypes = { git = "https://github.com/aestgar62/ptypes.git", version = "0.1.7" }
 rand = { version = "0.8.1", features = ["getrandom"], optional = true }
 rand_core = { version = "0.6", optional = true }
 rsa = { version = "0.9", optional = true, features = ["getrandom"] }
@@ -34,7 +36,18 @@ zeroize = { version = "1.6", features = ["zeroize_derive"] }
    
 
 [features]
-default = ["jwk-rsa", "jwk-okp", "jwk-ecdsa-all", "jwk-hmac", "jws", "jwe", "jwe-aes-hmac", "aes-cbc", "jwe-aes-kw"]
+default = [
+    "jwk-rsa", 
+    "jwk-okp", 
+    "jwk-ecdsa-all", 
+    "jwk-hmac", 
+    "jws", 
+    "jwe", 
+    "jwe-aes-hmac", 
+    "jwe-aes-cbc", 
+    "jwe-aes-kw",
+    "jwe-aes-gcm",
+    ]
 jwk-all = ["jwk-rsa"]
 jwk-ecdsa-all = ["jwk-k256", "jwk-p256", "jwk-p384", "jwk-p521"]
 jwk = []
@@ -51,6 +64,7 @@ jwk-okp = ["jwk-eddsa"]
 jwk-oct = ["jwk"]
 jwk-hmac = ["jwk-oct", "hmac", "sha2"]
 jwe-aes-hmac = ["jwe","jwk-oct", "aes", "cbc", "hmac", "sha2"]    
-aes-cbc = ["aes", "cbc", "cbc/alloc"]
+jwe-aes-cbc = ["jwe-aes", "cbc", "cbc/alloc"]
 jwe-aes = ["jwe", "jwk-oct", "aes"]
 jwe-aes-kw = ["jwe-aes", "aes-kw", "aes-kw/alloc"]
+jwe-aes-gcm = ["jwe-aes", "aes-gcm", "aes-gcm/alloc"]

@@ -21,17 +21,24 @@
 
 #[cfg(feature = "jwe-aes")]
 pub mod aes;
+pub mod wrap;
+
+#[cfg(feature = "jwe-aes")]
+pub use self::aes::{make_aes_cbc, make_aes_gcm};
 
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
-    jwk::{Jwk, KeyType},
-    utils::base64_encode_json,
+    jwk::Jwk,
+    utils::base64_decode_json,
     Error,
 };
 
-use ptypes::Uri;
+use generic_array::{
+    typenum::{U12, U16, U32, U40, U48},
+    ArrayLength, GenericArray,
+};
+use ptypes::{Base64urlUInt, Uri};
 
-use rsa::{Pkcs1v15Encrypt, Oaep, RsaPublicKey, RsaPrivateKey};
 use serde::{Deserialize, Serialize};
 
 /// For JWE, describe the encryption applied to the plaintext and optionally additional properties
@@ -95,179 +102,198 @@ pub struct JweHeader {
     pub critical: Option<Vec<String>>,
 }
 
-/// Encode JWE
-pub fn encode_jwe(
+/// Encode JWE with default header
+pub fn encode_compact_jwe_default(
     alg: JweAlgorithm,
     enc: EncryptionAlgorithm,
-    jwk: Jwk,
-    _payload: &[u8],
+    jwk: &Jwk,
+    payload: &[u8],
 ) -> Result<String, Error> {
+    // create header
     let header = JweHeader {
         algorithm: alg,
         encryption: enc,
         ..Default::default()
     };
-    let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes).map_err(|_| Error::Random("getrandom error".to_owned()))?;
-    let _cek_encrypted = wrap_cek(&header, &jwk, &bytes)?;
-    let protected = base64_encode_json(&header)?;
 
-    Ok(protected)
+    encode_compact_jwe(&header, jwk, payload)
 }
 
-/// Wrap Content Encryption Key (CEK).
-fn wrap_cek(header: &JweHeader, jwk: &Jwk, key: &[u8]) -> Result<Vec<u8>, Error> {
-    match header.algorithm {
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSA1_5 => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                let pk = RsaPublicKey::try_from(rsa_data)?;
-                let mut rng = rand::thread_rng();
-                Ok(pk
-                    .encrypt(&mut rng, Pkcs1v15Encrypt, key)
-                    .map_err(|_| Error::Encrypt(JweAlgorithm::RSA1_5.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
+/// Encode JWE content
+pub fn encode_compact_jwe(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<String, Error> {
+    let jwe_content = generate_jwe_content(header, jwk, payload)?;
+    let b64_cek: Base64urlUInt = Base64urlUInt(jwe_content.1);
+    let b64_iv = Base64urlUInt(jwe_content.2);
+    let b64_ciphertext = Base64urlUInt(jwe_content.3);
+    let b64_at = Base64urlUInt(jwe_content.4);
+
+    let compact = format!(
+        "{}.{}.{}.{}.{}",
+        jwe_content.0, b64_cek, b64_iv, b64_ciphertext, b64_at
+    );
+    Ok(compact)
+}
+
+/// Decode compact JWE.
+pub fn decode_compact_jwe(jwk: Jwk, jwe: &str) -> Result<Vec<u8>, Error> {
+    let content = parse_jwe_content(jwe)?;
+    extract_jwe_content(content)
+    /*
+    // get header bytes for AAD (Additional Authenticated Data)
+    let header_bytes = parts[0].as_bytes();
+    // get encoded header length bytes for Authenticated Tag
+    let al_bytes = aad_length(header_bytes.len())?;
+
+    let cek = unwrap_cek(&header, &jwk, &b64_cek.0)?;
+    // concatenate header, iv, ciphertext and al_bytes for AAD
+    let at = [header_bytes, &b64_iv.0, &b64_ciphertext.0, &al_bytes].concat();
+    // Create a Sha256 HMAC instance
+    let mut mac = Hmac::<Sha256>::new_from_slice(&cek[..16])
+        .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
+    // Write input data
+    mac.update(&at);
+    // Read result (mac value) into result variable
+    let result = mac.finalize().into_bytes();
+
+    if result[..16] != b64_at.0[..] {
+        return Err(Error::Decrypt("Invalid Authentication Tag".to_owned()));
+    }
+
+    let plaintext = decrypt_content(&header, &cek[16..], &b64_iv.0, &b64_ciphertext.0)?;
+
+    //let plaintext =
+
+    Ok(plaintext)*/
+}
+
+/// Parse JWE Content.
+fn parse_jwe_content(content: &str) -> Result<JweContent, Error> {
+    let parts: Vec<&str> = content.splitn(5, '.').collect();
+    //let header: JweHeader = base64_decode_json(parts[0])?;
+    let b64_cek = Base64urlUInt::try_from(parts[1].to_owned())
+        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+    let b64_iv = Base64urlUInt::try_from(parts[2].to_owned())
+        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+    let b64_ciphertext = Base64urlUInt::try_from(parts[3].to_owned())
+        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+    let b64_at = Base64urlUInt::try_from(parts[4].to_owned())
+        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+
+    Ok((
+        parts[0].to_owned(),
+        b64_cek.0,
+        b64_iv.0,
+        b64_ciphertext.0,
+        b64_at.0,
+    ))
+}
+
+/// JSON Web Encryption (JWE) represents encrypted content using JSON-based data structures.
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct JweJson {
+    /// The "protected" member contains the JWE Protected Header.
+    #[serde(rename = "protected")]
+    pub protected: String,
+    /// The "unprotected" member contains the JWE Unprotected Header.
+    #[serde(rename = "unprotected", skip_serializing_if = "Option::is_none")]
+    pub unprotected: Option<JweHeader>,
+    /// The "recipients" member contains an array of JWE Encrypted Key values.
+    #[serde(rename = "recipients")]
+    pub recipients: Vec<JweRecipient>,
+    /// The "aad" member contains the Additional Authenticated Data.
+    #[serde(rename = "aad", skip_serializing_if = "Option::is_none")]
+    pub aad: Option<String>,
+    /// The "iv" member contains the Initialization Vector.
+    #[serde(rename = "iv", skip_serializing_if = "Option::is_none")]
+    pub iv: Option<String>,
+    /// The "ciphertext" member contains the Ciphertext.
+    #[serde(rename = "ciphertext", skip_serializing_if = "Option::is_none")]
+    pub ciphertext: Option<String>,
+    /// The "tag" member contains the Authentication Tag.
+    #[serde(rename = "tag", skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
+/// The "recipients" member contains an array of JWE Encrypted Key values.
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct JweRecipient {
+    /// The "header" member contains the per-Recipient Header.
+    #[serde(rename = "header", skip_serializing_if = "Option::is_none")]
+    pub header: Option<JweHeader>,
+    /// The "encrypted_key" member contains the Encrypted Key value.
+    #[serde(rename = "encrypted_key", skip_serializing_if = "Option::is_none")]
+    pub encrypted_key: Option<String>,
+}
+
+type JweContent = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+
+/// Generates JWE Content.
+pub fn generate_jwe_content(
+    header: &JweHeader,
+    jwk: &Jwk,
+    content: &[u8],
+) -> Result<JweContent, Error> {
+    match header.encryption {
+        #[cfg(feature = "jwe-aes-cbc")]
+        EncryptionAlgorithm::A128CBCHS256 => {
+            let rg = RandomGenerator::<U32, U16>::generate()?;
+            make_aes_cbc(rg, header, jwk, content)
         }
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSAOAEP => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                use sha2::Sha256;
-                let pk = RsaPublicKey::try_from(rsa_data)?;
-                let mut rng = rand::thread_rng();
-                let padding = Oaep::new::<Sha256>();
-                Ok(pk
-                    .encrypt(&mut rng, padding, key)
-                    .map_err(|_| Error::Encrypt(JweAlgorithm::RSAOAEP.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
+        #[cfg(feature = "jwe-aes-cbc")]
+        EncryptionAlgorithm::A192CBCHS384 => {
+            let rg = RandomGenerator::<U40, U16>::generate()?;
+            make_aes_cbc(rg, header, jwk, content)
         }
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSAOAEP256 => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                use sha2::Sha256;
-                use sha1::Sha1;
-                let pk = RsaPublicKey::try_from(rsa_data)?;
-                let mut rng = rand::thread_rng();
-                let padding = Oaep::new_with_mgf_hash::<Sha256, Sha1>();
-                Ok(pk
-                    .encrypt(&mut rng, padding, key)
-                    .map_err(|_| Error::Encrypt(JweAlgorithm::RSAOAEP256.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
+        #[cfg(feature = "jwe-aes-cbc")]
+        EncryptionAlgorithm::A256CBCHS512 => {
+            let rg = RandomGenerator::<U48, U16>::generate()?;
+            make_aes_cbc(rg, header, jwk, content)
         }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A128KW => {
-            use self::aes::wrap_a128kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(wrap_a128kw(key, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A192KW => {
-            use self::aes::wrap_a192kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(wrap_a192kw(key, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A256KW => {
-            use self::aes::wrap_a256kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(wrap_a256kw(key, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        _ => Err(Error::UnimplementedAlgorithm(header.algorithm.to_string())),
+        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
     }
 }
 
-/// Unwrap Content Encryption Key (CEK).
-pub fn unwrap_cek(header: &JweHeader, jwk: &Jwk, cek: &[u8]) -> Result<Vec<u8>, Error> {
-    match header.algorithm {
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSA1_5 => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                let sk = RsaPrivateKey::try_from(rsa_data)?;
-                Ok(sk
-                    .decrypt(Pkcs1v15Encrypt, cek)
-                    .map_err(|_| Error::Decrypt(JweAlgorithm::RSA1_5.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
+/// Extract JWE Content.
+pub fn extract_jwe_content(jwe_content: JweContent) -> Result<Vec<u8>, Error> {
+    let header: JweHeader = base64_decode_json(&jwe_content.0)?;
+    match &header.encryption {
+        #[cfg(feature = "jwe-aes-cbc")]
+        EncryptionAlgorithm::A128CBCHS256 |
+        EncryptionAlgorithm::A192CBCHS384 |
+        EncryptionAlgorithm::A256CBCHS512 => {
+            Ok(Vec::new())
         }
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSAOAEP => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                use sha2::Sha256;
-                let sk = RsaPrivateKey::try_from(rsa_data)?;
-                let padding = Oaep::new::<Sha256>();
-                Ok(sk
-                    .decrypt(padding, cek)
-                    .map_err(|_| Error::Decrypt(JweAlgorithm::RSAOAEP.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwk-rsa")]
-        JweAlgorithm::RSAOAEP256 => {
-            if let KeyType::RSA(rsa_data) = &jwk.key_type {
-                use sha2::Sha256;
-                use sha1::Sha1;
-                let sk = RsaPrivateKey::try_from(rsa_data)?;
-                let padding = Oaep::new_with_mgf_hash::<Sha256, Sha1>();
-                Ok(sk
-                    .decrypt(padding, cek)
-                    .map_err(|_| Error::Decrypt(JweAlgorithm::RSAOAEP256.to_string()))?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A128KW => {
-            use self::aes::unwrap_a128kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(unwrap_a128kw(cek, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A192KW => {
-            use self::aes::unwrap_a192kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(unwrap_a192kw(cek, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A256KW => {
-            use self::aes::unwrap_a256kw;
-            if let KeyType::OCT(data) = &jwk.key_type {
-                let kw = data.key.0.clone();
-                Ok(unwrap_a256kw(cek, &kw)?)
-            } else {
-                Err(Error::InvalidKey("Invalid Key".to_string()))
-            }
-        }
-        _ => Err(Error::UnimplementedAlgorithm(header.algorithm.to_string())),
+
+        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
+
     }
 }
 
+/// Random Generator
+#[derive(Default, Debug)]
+pub struct RandomGenerator<K: ArrayLength<u8>, I: ArrayLength<u8>> {
+    /// Encription Key array
+    pub enc_key: GenericArray<u8, K>,
+    /// Initilization vector array
+    pub iv: GenericArray<u8, I>,
+}
+
+impl<K: ArrayLength<u8>, I: ArrayLength<u8>> RandomGenerator<K, I> {
+    /// Create new Random Generator and generate random values.
+    ///
+    /// # Arguments
+    ///
+    /// * `with_mac` - Generate Mac Key or not.
+    ///
+    pub fn generate() -> Result<Self, Error> {
+        let mut rg = Self::default();
+        getrandom::getrandom(&mut rg.enc_key)
+            .map_err(|_| Error::Random("getrandom for Encryption Key".to_owned()))?;
+        getrandom::getrandom(&mut rg.iv)
+            .map_err(|_| Error::Random("getrandom for Initialization Vector".to_owned()))?;
+        Ok(rg)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -295,118 +321,42 @@ mod tests {
         let result = base64_encode_json(&header).unwrap();
         assert_eq!(result, protected);
     }
+    /*
+        #[test]
+        #[cfg(feature = "jwe-aes-hmac")]
+        fn test_example_rfc7516_a3() {
+            let msg = b"Live long and prosper.";
+            let key = r#"
+            {
+                "kty":"oct",
+                "k":"GawgguFyGrWKav7AX4VKUg"
+            }"#;
 
-/*     #[test]
-    #[cfg(feature = "jwe-aes-hmac")]
-    fn test_a128_cbchs256() {
-        use crate::utils::generate_random_bytes;
-        use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit};
-        use hmac::{Hmac, Mac};
-        use sha2::Sha256;
+            let key: Jwk = serde_json::from_str(key).unwrap();
+            let compact = encode_compact_jwe(
+                JweAlgorithm::A128KW,
+                EncryptionAlgorithm::A128CBCHS256,
+                &key,
+                msg,
+            );
+            //let result = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0.6KB707dM9YTIgHtLvtgWQ8mKwboJW3of9locizkDTHzBC2IlrT1oOQ.AxY8DCtDaGlsbGljb3RoZQ.KDlTtXchhZTGufMYmOYGS4HffxPSUrfmqCHXaI9wOGY.U0m_YmjN04DJvceFICbCVQ".to_owned();
+            assert!(compact.is_ok());
 
-        type Aes128CbcEnc = cbc::Encryptor<aes::Aes128>;
-        type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
-
-        let bytes = generate_random_bytes().unwrap();
-        let mac_key = &bytes[..16];
-        let enc_key = &bytes[16..];
-        let mac_key: [u8; 16] = [
-            4, 211, 31, 197, 84, 157, 252, 254, 11, 100, 157, 250, 63, 170, 106, 206,
-        ];
-
-        let enc_key: [u8; 16] = [
-            107, 124, 212, 45, 111, 107, 9, 219, 200, 177, 0, 240, 143, 156, 44, 207,
-        ];
-        let iv: [u8; 16] = [
-            3, 22, 60, 12, 43, 67, 104, 105, 108, 108, 105, 99, 111, 116, 104, 101,
-        ];
-        //let iv = [0x24; 16];
-        let plain: [u8; 22] = [
-            76, 105, 118, 101, 32, 108, 111, 110, 103, 32, 97, 110, 100, 32, 112, 114, 111, 115,
-            112, 101, 114, 46,
-        ];
-
-        let pt_len = plain.len();
-        let mut buf = [0u8; 48];
-        buf[..pt_len].copy_from_slice(&plain);
-
-        let ct = Aes128CbcEnc::new(&enc_key.into(), &iv.into())
-            .encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len);
-
-        let result: [u8; 32] = [
-            40, 57, 83, 181, 119, 33, 133, 148, 198, 185, 243, 24, 152, 230, 6, 75, 129, 223, 127,
-            19, 210, 82, 183, 230, 168, 33, 215, 104, 143, 112, 56, 102,
-        ];
-
-        assert_eq!(ct.unwrap(), result);
-
-        let data: &[u8] = &[
-            101, 121, 74, 104, 98, 71, 99, 105, 79, 105, 74, 66, 77, 84, 73, 52, 83, 49, 99, 105,
-            76, 67, 74, 108, 98, 109, 77, 105, 79, 105, 74, 66, 77, 84, 73, 52, 81, 48, 74, 68, 76,
-            85, 104, 84, 77, 106, 85, 50, 73, 110, 48, 3, 22, 60, 12, 43, 67, 104, 105, 108, 108,
-            105, 99, 111, 116, 104, 101, 40, 57, 83, 181, 119, 33, 133, 148, 198, 185, 243, 24,
-            152, 230, 6, 75, 129, 223, 127, 19, 210, 82, 183, 230, 168, 33, 215, 104, 143, 112, 56,
-            102, 0, 0, 0, 0, 0, 0, 1, 152,
-        ];
-
-        let mut mac = Hmac::<Sha256>::new_from_slice(&mac_key).unwrap();
-        mac.update(data);
-        let mac_bytes = mac.finalize().into_bytes();
-
-        println!("mac_bytes: {:?}", mac_bytes);
-    }*/
-
+            let compact = compact.unwrap();
+            let result = decode_compact_jwe(key, &compact);
+            assert!(result.is_ok());
+            let result = result.unwrap();
+            let text = String::from_utf8(result.clone()).unwrap();
+            assert_eq!(text, "Live long and prosper.");
+            assert_eq!(msg.to_vec(), result);
+        }
+    */
     #[test]
-    #[cfg(feature = "jwe-aes-hmac")]
-    fn test_encrypt_cek() {
-        use crate::jwk::Jwk;
+    fn test_random_generation() {
+        use generic_array::typenum::{U16, U32};
 
-        let msg = b"0123456789abcdef0123456789abcdef";
-
-        let kp = Jwk::create_rsa().unwrap();
-        let mut header = JweHeader {
-            algorithm: JweAlgorithm::RSA1_5,
-            encryption: EncryptionAlgorithm::A128CBCHS256,
-            ..Default::default()
-        };
-
-        let key = wrap_cek(&header, &kp, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &kp, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-
-        header.algorithm = JweAlgorithm::RSAOAEP;
-        let key = wrap_cek(&header, &kp, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &kp, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-
-        header.algorithm = JweAlgorithm::RSAOAEP256;
-        let key = wrap_cek(&header, &kp, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &kp, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-        
-        let mut bytes = [0u8; 16];
-        getrandom::getrandom(&mut bytes).unwrap();
-        let sym = Jwk::create_oct(&bytes).unwrap();
-        header.algorithm = JweAlgorithm::A128KW;
-        let key = wrap_cek(&header, &sym, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &sym, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-
-        let mut bytes = [0u8; 24];
-        getrandom::getrandom(&mut bytes).unwrap();
-        let sym = Jwk::create_oct(&bytes).unwrap();
-        header.algorithm = JweAlgorithm::A192KW;
-        let key = wrap_cek(&header, &sym, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &sym, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-
-        let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).unwrap();
-        let sym = Jwk::create_oct(&bytes).unwrap();
-        header.algorithm = JweAlgorithm::A256KW;
-        let key = wrap_cek(&header, &sym, msg).unwrap();
-        let unwrap_msg = unwrap_cek(&header, &sym, &key).unwrap();
-        assert_eq!(msg, unwrap_msg.as_slice());
-
+        let generator = RandomGenerator::<U32, U16>::generate().unwrap();
+        assert_eq!(generator.enc_key.len(), 32);
+        assert_eq!(generator.iv.len(), 16);
     }
 }

@@ -156,4 +156,16 @@ mod tests {
         let err = Error::InvalidKey("error".to_owned());
         assert_eq!(err.to_string(), "Invalid Key: error");
     }
+
+    #[test]
+    fn test_display() {
+        let err = Error::InvalidUri;
+        assert_eq!(err.to_string(), "Invalid URI");
+    }
+
+    #[test]
+    fn test_debug() {
+        let err = Error::InvalidUri;
+        assert_eq!(format!("{:?}", err), "InvalidUri");
+    }
 }

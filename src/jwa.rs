@@ -215,6 +215,23 @@ impl Default for EncryptionAlgorithm {
     }
 }
 
+impl fmt::Display for EncryptionAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::A128CBCHS256 => write!(f, "A128CBC-HS256"),
+            Self::A192CBCHS384 => write!(f, "A192CBC-HS384"),
+            Self::A256CBCHS512 => write!(f, "A256CBC-HS512"),
+            Self::A128GCM => write!(f, "A128GCM"),
+            Self::A192GCM => write!(f, "A192GCM"),
+            Self::A256GCM => write!(f, "A256GCM"),
+            Self::C20P => write!(f, "C20P"),
+            Self::C20P192 => write!(f, "C20P192"),
+            Self::C20P256 => write!(f, "C20P256"),
+            Self::None => write!(f, "none"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
