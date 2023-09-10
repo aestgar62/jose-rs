@@ -23,13 +23,10 @@
 pub mod aes;
 pub mod wrap;
 
-#[cfg(feature = "jwe-aes")]
-pub use self::aes::{make_aes_cbc, make_aes_gcm};
-
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
     jwk::Jwk,
-    utils::base64_decode_json,
+    utils::{base64_decode_json, base64_encode_json},
     Error,
 };
 
@@ -121,7 +118,7 @@ pub fn encode_compact_jwe_default(
 
 /// Encode JWE content
 pub fn encode_compact_jwe(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<String, Error> {
-    let jwe_content = generate_jwe_content(header, jwk, payload)?;
+    /*let jwe_content = generate_jwe_content(header, jwk, payload)?;
     let b64_cek: Base64urlUInt = Base64urlUInt(jwe_content.1);
     let b64_iv = Base64urlUInt(jwe_content.2);
     let b64_ciphertext = Base64urlUInt(jwe_content.3);
@@ -131,14 +128,15 @@ pub fn encode_compact_jwe(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Resu
         "{}.{}.{}.{}.{}",
         jwe_content.0, b64_cek, b64_iv, b64_ciphertext, b64_at
     );
-    Ok(compact)
+    Ok(compact)*/
+    unimplemented!("encode_compact_jwe")
 }
 
 /// Decode compact JWE.
 pub fn decode_compact_jwe(jwk: Jwk, jwe: &str) -> Result<Vec<u8>, Error> {
-    let content = parse_jwe_content(jwe)?;
+    /*let content = parse_jwe_content(jwe)?;
     extract_jwe_content(content)
-    /*
+    
     // get header bytes for AAD (Additional Authenticated Data)
     let header_bytes = parts[0].as_bytes();
     // get encoded header length bytes for Authenticated Tag
@@ -164,6 +162,7 @@ pub fn decode_compact_jwe(jwk: Jwk, jwe: &str) -> Result<Vec<u8>, Error> {
     //let plaintext =
 
     Ok(plaintext)*/
+    unimplemented!("decode_compact_jwe")
 }
 
 /// Parse JWE Content.
@@ -227,45 +226,17 @@ pub struct JweRecipient {
 
 type JweContent = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 
-/// Generates JWE Content.
-pub fn generate_jwe_content(
-    header: &JweHeader,
-    jwk: &Jwk,
-    content: &[u8],
-) -> Result<JweContent, Error> {
-    match header.encryption {
-        #[cfg(feature = "jwe-aes-cbc")]
-        EncryptionAlgorithm::A128CBCHS256 => {
-            let rg = RandomGenerator::<U32, U16>::generate()?;
-            make_aes_cbc(rg, header, jwk, content)
-        }
-        #[cfg(feature = "jwe-aes-cbc")]
-        EncryptionAlgorithm::A192CBCHS384 => {
-            let rg = RandomGenerator::<U40, U16>::generate()?;
-            make_aes_cbc(rg, header, jwk, content)
-        }
-        #[cfg(feature = "jwe-aes-cbc")]
-        EncryptionAlgorithm::A256CBCHS512 => {
-            let rg = RandomGenerator::<U48, U16>::generate()?;
-            make_aes_cbc(rg, header, jwk, content)
-        }
-        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
-    }
-}
-
-/// Extract JWE Content.
-pub fn extract_jwe_content(jwe_content: JweContent) -> Result<Vec<u8>, Error> {
-    let header: JweHeader = base64_decode_json(&jwe_content.0)?;
-    match &header.encryption {
-        #[cfg(feature = "jwe-aes-cbc")]
-        EncryptionAlgorithm::A128CBCHS256 |
-        EncryptionAlgorithm::A192CBCHS384 |
-        EncryptionAlgorithm::A256CBCHS512 => {
-            Ok(Vec::new())
-        }
-
-        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
-
+/// Wrap key.
+pub fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+    match alg {
+        #[cfg(feature = "jwe-aes")]
+        JweAlgorithm::A128KW |
+        JweAlgorithm::A192KW |
+        JweAlgorithm::A256KW => {
+            use self::aes::AesKw;
+            AesKw::wrap_key(alg, cek, jwk)
+        },
+        _ => Err(Error::UnimplementedAlgorithm(alg.to_string())),
     }
 }
 
@@ -281,9 +252,9 @@ pub struct RandomGenerator<K: ArrayLength<u8>, I: ArrayLength<u8>> {
 impl<K: ArrayLength<u8>, I: ArrayLength<u8>> RandomGenerator<K, I> {
     /// Create new Random Generator and generate random values.
     ///
-    /// # Arguments
+    /// # Returns
     ///
-    /// * `with_mac` - Generate Mac Key or not.
+    /// * `Result<Self, Error>` - Random Generator.
     ///
     pub fn generate() -> Result<Self, Error> {
         let mut rg = Self::default();
@@ -293,6 +264,134 @@ impl<K: ArrayLength<u8>, I: ArrayLength<u8>> RandomGenerator<K, I> {
             .map_err(|_| Error::Random("getrandom for Initialization Vector".to_owned()))?;
         Ok(rg)
     }
+}
+
+/// JWE encrypter.
+pub trait JweEncrypter {
+    /// Encrypt content to JSON.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - JWE Header.
+    /// * `jwk` - JSON Web Key.
+    /// * `content` - Content to encrypt.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<JweJson, Error>` - JWE JSON.
+    ///
+    fn encrypt<K, I>(
+        rg: &RandomGenerator<K, I>,
+        header: &JweHeader,
+        jwk: &Jwk,
+        content: &[u8],
+    ) -> Result<JweJson, Error>
+    where
+        K: ArrayLength<u8>,
+        I: ArrayLength<u8>;
+
+    /// Encrypt content to compact JWE.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - JWE Header.
+    /// * `jwk` - JSON Web Key.
+    /// * `content` - Content to encrypt.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<String, Error>` - Compact JWE.
+    ///
+    fn encrypt_compact<K, I>(
+        rg: &RandomGenerator<K, I>,
+        header: &JweHeader,
+        jwk: &Jwk,
+        content: &[u8],
+    ) -> Result<String, Error>
+    where
+        K: ArrayLength<u8>,
+        I: ArrayLength<u8>;
+
+    /// Additional Authenticated Data from JWE Header.
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - JWE Header.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Additional Authenticated Data.
+    ///
+    fn aad(header: &JweHeader) -> Result<Vec<u8>, Error> {
+        let header_bytes = base64_encode_json(header)?;
+        Ok(header_bytes.as_bytes().to_vec())
+    }
+
+    /// Encrypt content.
+    fn encrypt_content(
+        header: &JweHeader,
+        cek: &[u8],
+        iv: &[u8],
+        content: &[u8],
+    ) -> Result<Vec<u8>, Error>;
+}
+
+/// JWE decrypter.
+pub trait JweDecrypter {
+    /// Decrypt content.
+    ///
+    /// # Arguments
+    ///
+    /// * `jwk` - JSON Web Key.
+    /// * `jwe` - JWE content.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Decrypted content.
+    ///
+    fn decrypt(jwk: &Jwk, jwe: &JweJson) -> Result<Vec<u8>, Error>;
+
+    /// Decrypt content from compact JWE.
+    ///
+    /// # Arguments
+    ///
+    /// * `jwk` - JSON Web Key.
+    /// * `jwe` - Compact JWE.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Decrypted content.
+    ///
+    fn decrypt_compact(jwk: &Jwk, jwe: &str) -> Result<Vec<u8>, Error>;
+}
+
+/// Key wrapping.
+pub trait KeyWrapper {
+    /// Wrap key.
+    ///
+    /// # Arguments
+    ///
+    /// * `cek` - Content Encryption Key.
+    /// * `jwk` - JSON Web Key.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Wrapped key.
+    ///
+    fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
+
+    /// Unwrap key.
+    ///
+    /// # Arguments
+    ///
+    /// * `cek` - Content Encryption Key.
+    /// * `jwk` - JSON Web Key.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Unwrapped key.
+    ///
+    fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
 }
 
 #[cfg(test)]

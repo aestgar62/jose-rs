@@ -27,6 +27,8 @@ mod okp;
 mod rsa_jwk;
 mod symmetric;
 
+use std::fmt::Display;
+
 #[cfg(feature = "jwk-ecdsa")]
 pub use self::ecdsa::ECData;
 #[cfg(feature = "jwk-okp")]
@@ -37,6 +39,7 @@ pub use self::rsa_jwk::RsaData;
 pub use self::symmetric::SymmetricKeysData;
 
 use crate::{jwa::SignatureAlgorithm, Error};
+
 use ptypes::Base64urlUInt;
 
 use serde::{Deserialize, Serialize};
@@ -82,6 +85,20 @@ impl KeyType {
 impl Default for KeyType {
     fn default() -> Self {
         Self::OCT(SymmetricKeysData::default())
+    }
+}
+
+impl Display for KeyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(feature = "jwk-rsa")]
+            Self::RSA(_) => write!(f, "RSA"),
+            #[cfg(feature = "jwk-eddsa")]
+            Self::OKP(_) => write!(f, "OKP"),
+            #[cfg(feature = "jwk-ecdsa")]
+            Self::EC(_) => write!(f, "EC"),
+            Self::OCT(_) => write!(f, "OCT"),
+        }
     }
 }
 

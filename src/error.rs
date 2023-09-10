@@ -47,6 +47,8 @@ pub enum Error {
     Random(String),
     /// Unimplementd algorithm
     UnimplementedAlgorithm(String),
+    /// Invalid Algorithm
+    InvalidAlgorithm(String),
 }
 
 impl std::fmt::Display for Error {
@@ -69,6 +71,9 @@ impl std::fmt::Display for Error {
                 write!(f, "Unimplemented algorithm: {}", string)
             }
             Error::InvalidKey(string) => write!(f, "Invalid Key: {}", string),
+            Error::InvalidAlgorithm(string) => {
+                write!(f, "Invalid Algorithm: {}", string)
+            }
         }
     }
 }
@@ -167,5 +172,11 @@ mod tests {
     fn test_debug() {
         let err = Error::InvalidUri;
         assert_eq!(format!("{:?}", err), "InvalidUri");
+    }
+
+    #[test]
+    fn test_invalid_algorithm() {
+        let err = Error::InvalidAlgorithm("error".to_owned());
+        assert_eq!(err.to_string(), "Invalid Algorithm: error");
     }
 }

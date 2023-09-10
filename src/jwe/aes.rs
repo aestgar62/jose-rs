@@ -17,13 +17,18 @@
 
 #![deny(missing_docs)]
 
-use super::{wrap::{wrap_cek, unwrap_cek}, RandomGenerator};
-use crate::{
-    jwe::{JweContent, JweHeader, Jwk},
-    utils::{base64_encode_json, generate_hmac, validate_hmac},
-    Error,
+use super::{
+    wrap::{unwrap_cek, wrap_cek},
+    JweContent, JweEncrypter, JweHeader, JweJson, RandomGenerator, KeyWrapper,
 };
 
+use crate::{
+    jwk::{Jwk, KeyType},
+    utils::{base64_encode_json, generate_hmac, validate_hmac},
+    Error, jwa::{EncryptionAlgorithm, JweAlgorithm},
+};
+
+#[cfg(feature = "jwe-aes")]
 use aes::{
     cipher::{
         block_padding::Pkcs7, BlockCipher, BlockDecrypt, BlockDecryptMut, BlockEncrypt,
@@ -38,10 +43,149 @@ use aes_gcm::{Key, Nonce};
 #[cfg(feature = "jwe-aes-gcm")]
 use aead::{Aead, KeyInit};
 
-use generic_array::{
-    typenum::U16,
-    ArrayLength,
-};
+#[cfg(feature = "jwe-aes-kw")]
+use aes_kw::Kek;
+
+use generic_array::{typenum::U16, ArrayLength};
+
+/// AesCbc encrypter.
+#[cfg(feature = "jwe-aes-cbc")]
+#[derive(Debug)]
+pub struct AesCbcEncrypter;
+
+#[cfg(feature = "jwe-aes-cbc")]
+impl JweEncrypter for AesCbcEncrypter {
+    fn encrypt<K: ArrayLength<u8>, I: ArrayLength<u8>>(
+        rg: &RandomGenerator<K, I>,
+        header: &JweHeader,
+        jwk: &Jwk,
+        content: &[u8],
+    ) -> Result<JweJson, Error> {
+        let key_len = rg.enc_key.len() / 2;
+        let (cek, iv) = rg.enc_key.split_at(key_len);
+        let ciphertext = Self::encrypt_content(header, cek, iv, content)?;
+        //let ciphertext = Self::encrypt_content(header, cek, iv, content)
+        unimplemented!("AesCbcEncrypter")
+    }
+
+    fn encrypt_compact<K, I>(
+        rg: &RandomGenerator<K, I>,
+        header: &JweHeader,
+        jwk: &Jwk,
+        content: &[u8],
+    ) -> Result<String, Error>
+    where
+        K: ArrayLength<u8>,
+        I: ArrayLength<u8>,
+    {
+        unimplemented!("AesCbcEncrypter")
+    }
+
+    fn encrypt_content(
+        header: &JweHeader,
+        cek: &[u8],
+        iv: &[u8],
+        content: &[u8],
+    ) -> Result<Vec<u8>, Error> {
+        let ciphertext = match header.encryption {
+            EncryptionAlgorithm::A128CBCHS256 => {
+                cbc::Encryptor::<aes::Aes128>
+                    ::new(cek.into(), iv.into())
+                    .encrypt_padded_vec_mut::<Pkcs7>(content)
+            },
+            EncryptionAlgorithm::A192CBCHS384 => {
+                cbc::Encryptor::<aes::Aes192>
+                    ::new(cek.into(), iv.into())
+                    .encrypt_padded_vec_mut::<Pkcs7>(content)
+            },
+            EncryptionAlgorithm::A256CBCHS512 => {
+                cbc::Encryptor::<aes::Aes256>
+                    ::new(cek.into(), iv.into())
+                    .encrypt_padded_vec_mut::<Pkcs7>(content)
+            },
+            _ => return Err(Error::InvalidAlgorithm(header.encryption.to_string())),
+        };
+        Ok(ciphertext)
+    }
+
+
+}
+
+/// AES Key Wrapper.
+/// https://tools.ietf.org/html/rfc3394
+/// 
+#[cfg(feature = "jwe-aes-kw")]
+pub struct AesKw;
+
+#[cfg(feature = "jwe-aes-kw")]
+impl KeyWrapper for AesKw {
+    fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        let key = if let KeyType::OCT(key_data) = &jwk.key_type {
+            &key_data.key.0
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let wk = match alg {
+            JweAlgorithm::A128KW => {
+                let wrapper = Kek::<Aes128>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
+                wrapper.wrap_vec(cek).map_err(|_| {
+                    Error::Encrypt("AESKW wrap".to_string())
+                })?
+            },
+            JweAlgorithm::A192KW => {
+                let wrapper = Kek::<Aes192>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
+                wrapper.wrap_vec(cek).map_err(|_| {
+                    Error::Encrypt("AESKW wrap".to_string())
+                })?
+            },
+            JweAlgorithm::A256KW => {
+                let wrapper = Kek::<Aes256>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
+                wrapper.wrap_vec(cek).map_err(|_| {
+                    Error::Encrypt("AESKW wrap".to_string())
+                })?
+            },
+            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
+        };
+        Ok(wk)
+    }
+
+    fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        let key = if let KeyType::OCT(key_data) = &jwk.key_type {
+            &key_data.key.0
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let cek = match alg {
+            JweAlgorithm::A128KW => {
+                let wrapper = Kek::<Aes128>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
+                wrapper.unwrap_vec(cek).map_err(|_| {
+                    Error::Decrypt("AESKW unwrap".to_string())
+                })?
+            },
+            JweAlgorithm::A192KW => {
+                let wrapper = Kek::<Aes192>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
+                wrapper.unwrap_vec(cek).map_err(|_| {
+                    Error::Decrypt("AESKW unwrap".to_string())
+                })?
+            },
+            JweAlgorithm::A256KW => {
+                let wrapper = Kek::<Aes256>::try_from(key.as_slice())
+                    .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
+                wrapper.unwrap_vec(cek).map_err(|_| {
+                    Error::Decrypt("AESKW unwrap".to_string())
+                })?        
+            },
+            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
+        };  
+        Ok(cek)
+    }
+    
+}
 
 /// Wrap with AES Key Wrap.
 /// https://tools.ietf.org/html/rfc5649
@@ -50,7 +194,6 @@ pub fn wrap_aes_kw<T>(key: &[u8], kw: &[u8]) -> Result<Vec<u8>, Error>
 where
     T: KeyInit + BlockCipher + BlockSizeUser<BlockSize = U16> + BlockEncrypt + BlockDecrypt,
 {
-    use aes_kw::Kek;
     let kek = Kek::<T>::new(kw.into());
     Ok(kek
         .wrap_vec(key)
@@ -69,78 +212,6 @@ where
     Ok(kek
         .unwrap_vec(cipherkey)
         .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
-}
-
-/// Encrypt with Aes Cbc mode.
-#[cfg(feature = "jwe-aes-cbc")]
-fn encrypt_aes_cbc<T>(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Error>
-where
-    T: BlockCipher + BlockEncryptMut + KeyInit + KeySizeUser + BlockSizeUser,
-{
-    let ciphertext: Vec<u8> =
-        cbc::Encryptor::<T>::new(key.into(), iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plaintext);
-    Ok(ciphertext)
-}
-
-/// Decrypt with Aes Cbc mode.
-#[cfg(feature = "jwe-aes-cbc")]
-pub fn decrypt_aes_cbc<T>(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Error>
-where
-    T: BlockCipher + BlockDecryptMut + KeyInit + KeySizeUser + BlockSizeUser,
-{
-    let plaintext: Vec<u8> = cbc::Decryptor::<T>::new(key.into(), iv.into())
-        .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
-        .map_err(|_| Error::Decrypt("Aes128Cbc unpad".to_string()))?;
-    Ok(plaintext)
-}
-
-/// Make AES CBC content.
-#[cfg(feature = "jwe-aes-cbc")]
-pub fn make_aes_cbc<K: ArrayLength<u8>, I: ArrayLength<u8>>(
-    rg: RandomGenerator<K, I>,
-    header: &JweHeader,
-    jwk: &Jwk,
-    content: &[u8],
-) -> Result<JweContent, Error> {
-    let header_encode = base64_encode_json(&header)?;
-    let aad = header_encode.as_bytes();
-    let enc_content = match rg.enc_key.len() {
-        32 => encrypt_aes_cbc::<Aes128>(content, &rg.enc_key[16..], &rg.iv)?,
-        40 => encrypt_aes_cbc::<Aes192>(content, &rg.enc_key[16..], &rg.iv)?,
-        48 => encrypt_aes_cbc::<Aes256>(content, &rg.enc_key[16..], &rg.iv)?,
-        _ => return Err(Error::InvalidKey("Invalid Key size for AesCBC".to_string())),
-    };
-    let enc_key = wrap_cek(header, jwk, &rg.enc_key)?;
-    let al_bytes = aad_length(aad.len())?;
-    let at = [aad, &rg.iv, &enc_content, &al_bytes].concat();
-    let mac = generate_hmac(&rg.enc_key[..16], &at)?;
-    Ok((header_encode, enc_content, enc_key, rg.iv.to_vec(), mac))
-}
-
-/// Extract AES CBC content.
-#[cfg(feature = "jwe-aes-cbc")]
-pub fn extract_aes_cbc(
-    header: &JweHeader,
-    jwk: &Jwk,
-    cek: &[u8],
-    iv: &[u8],
-    ciphertext: &[u8],
-    tag: &[u8],
-) -> Result<Vec<u8>, Error> {
-    let header_encode = base64_encode_json(&header)?;
-    let aad = header_encode.as_bytes();
-    let enc_key = unwrap_cek(header, jwk, cek)?;
-    let al_bytes = aad_length(aad.len())?;
-    let at = [aad, iv, ciphertext, &al_bytes].concat();
-    validate_hmac(&enc_key[..16], tag, &at)?;
-
-    let plaintext = match enc_key.len() {
-        32 => decrypt_aes_cbc::<Aes128>(ciphertext, &enc_key[16..], iv)?,
-        40 => decrypt_aes_cbc::<Aes192>(ciphertext, &enc_key[16..], iv)?,
-        48 => decrypt_aes_cbc::<Aes256>(ciphertext, &enc_key[16..], iv)?,
-        _ => return Err(Error::InvalidKey("Invalid Key size for AesCBC".to_string())),
-    };
-    Ok(plaintext)
 }
 
 /// Encrypt with AES-GCM algorithm.
@@ -248,27 +319,6 @@ mod tests {
         let decrypted = unwrap_aes_kw::<Aes256>(&cipherkey, kw).unwrap();
 
         assert_eq!(key, decrypted.as_slice());
-    }
-
-    #[test]
-    fn test_encrypt_decrypt_aes_cbc() {
-        let plaintext = b"Hello world!";
-        let iv = b"0123456789abcdef";
-
-        let key = b"0123456789abcdef";
-        let ciphertext = encrypt_aes_cbc::<Aes128>(plaintext, key, iv).unwrap();
-        let decrypted = decrypt_aes_cbc::<Aes128>(&ciphertext, key, iv).unwrap();
-        assert_eq!(plaintext, decrypted.as_slice());
-
-        let key = b"0123456789abcdef01234567";
-        let ciphertext = encrypt_aes_cbc::<Aes192>(plaintext, key, iv).unwrap();
-        let decrypted = decrypt_aes_cbc::<Aes192>(&ciphertext, key, iv).unwrap();
-        assert_eq!(plaintext, decrypted.as_slice());
-
-        let key = b"0123456789abcdef0123456789abcdef";
-        let ciphertext = encrypt_aes_cbc::<Aes256>(plaintext, key, iv).unwrap();
-        let decrypted = decrypt_aes_cbc::<Aes256>(&ciphertext, key, iv).unwrap();
-        assert_eq!(plaintext, decrypted.as_slice());
     }
 
     #[test]
