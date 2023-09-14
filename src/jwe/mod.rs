@@ -19,9 +19,14 @@
 
 #![deny(missing_docs)]
 
-#[cfg(feature = "jwe-aes")]
-pub mod aes;
-pub mod wrap;
+#[cfg(feature = "jwe-aes-kw")]
+mod aes_kw;
+
+#[cfg(feature = "jwe-aes-cbc")]
+mod aes_cbc;
+
+#[cfg(feature = "jwe-aes-gcm")]
+mod aes_gcm;
 
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
@@ -31,7 +36,6 @@ use crate::{
 };
 
 use generic_array::{
-    typenum::{U12, U16, U32, U40, U48},
     ArrayLength, GenericArray,
 };
 use ptypes::{Base64urlUInt, Uri};
@@ -99,6 +103,51 @@ pub struct JweHeader {
     pub critical: Option<Vec<String>>,
 }
 
+impl JweHeader {
+    /// Creates a new JWE Header.
+    ///
+    /// # Arguments
+    ///
+    /// * `alg` - JWE Algorithm.
+    /// * `enc` - Encryption Algorithm.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - JWE Header.
+    ///
+    pub fn new(alg: JweAlgorithm, enc: EncryptionAlgorithm) -> Self {
+        Self {
+            algorithm: alg,
+            encryption: enc,
+            ..Default::default()
+        }
+    }
+
+    /// Gets Additional Authenticated Data from JWE Header.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Additional Authenticated Data.
+    ///
+    pub fn to_aad(&self) -> Result<Vec<u8>, Error> {
+        let header_bytes = base64_encode_json(self)?;
+        Ok(header_bytes.as_bytes().to_vec())
+    }
+
+    /// Gets protected header.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<String, Error>` - Protected header.
+    ///
+    pub fn protected(&self) -> Result<String, Error> {
+        base64_encode_json(self)
+    }
+}
+
+/// JWE Content.
+pub type JweContent = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+
 /// Encode JWE with default header
 pub fn encode_compact_jwe_default(
     alg: JweAlgorithm,
@@ -116,59 +165,23 @@ pub fn encode_compact_jwe_default(
     encode_compact_jwe(&header, jwk, payload)
 }
 
-/// Encode JWE content
+/// Encode compact JWE content
 pub fn encode_compact_jwe(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<String, Error> {
-    /*let jwe_content = generate_jwe_content(header, jwk, payload)?;
+    let jwe_content = make_jwe_content(header, jwk, payload)?;
     let b64_cek: Base64urlUInt = Base64urlUInt(jwe_content.1);
     let b64_iv = Base64urlUInt(jwe_content.2);
     let b64_ciphertext = Base64urlUInt(jwe_content.3);
     let b64_at = Base64urlUInt(jwe_content.4);
-
     let compact = format!(
         "{}.{}.{}.{}.{}",
         jwe_content.0, b64_cek, b64_iv, b64_ciphertext, b64_at
     );
-    Ok(compact)*/
-    unimplemented!("encode_compact_jwe")
+    Ok(compact)
 }
 
 /// Decode compact JWE.
 pub fn decode_compact_jwe(jwk: Jwk, jwe: &str) -> Result<Vec<u8>, Error> {
-    /*let content = parse_jwe_content(jwe)?;
-    extract_jwe_content(content)
-    
-    // get header bytes for AAD (Additional Authenticated Data)
-    let header_bytes = parts[0].as_bytes();
-    // get encoded header length bytes for Authenticated Tag
-    let al_bytes = aad_length(header_bytes.len())?;
-
-    let cek = unwrap_cek(&header, &jwk, &b64_cek.0)?;
-    // concatenate header, iv, ciphertext and al_bytes for AAD
-    let at = [header_bytes, &b64_iv.0, &b64_ciphertext.0, &al_bytes].concat();
-    // Create a Sha256 HMAC instance
-    let mut mac = Hmac::<Sha256>::new_from_slice(&cek[..16])
-        .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
-    // Write input data
-    mac.update(&at);
-    // Read result (mac value) into result variable
-    let result = mac.finalize().into_bytes();
-
-    if result[..16] != b64_at.0[..] {
-        return Err(Error::Decrypt("Invalid Authentication Tag".to_owned()));
-    }
-
-    let plaintext = decrypt_content(&header, &cek[16..], &b64_iv.0, &b64_ciphertext.0)?;
-
-    //let plaintext =
-
-    Ok(plaintext)*/
-    unimplemented!("decode_compact_jwe")
-}
-
-/// Parse JWE Content.
-fn parse_jwe_content(content: &str) -> Result<JweContent, Error> {
-    let parts: Vec<&str> = content.splitn(5, '.').collect();
-    //let header: JweHeader = base64_decode_json(parts[0])?;
+    let parts: Vec<&str> = jwe.splitn(5, '.').collect();
     let b64_cek = Base64urlUInt::try_from(parts[1].to_owned())
         .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
     let b64_iv = Base64urlUInt::try_from(parts[2].to_owned())
@@ -178,13 +191,65 @@ fn parse_jwe_content(content: &str) -> Result<JweContent, Error> {
     let b64_at = Base64urlUInt::try_from(parts[4].to_owned())
         .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
 
-    Ok((
+    extract_jwe_content(jwk, (
         parts[0].to_owned(),
         b64_cek.0,
         b64_iv.0,
         b64_ciphertext.0,
         b64_at.0,
     ))
+}
+
+/// Make JWE Content.
+fn make_jwe_content(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<JweContent, Error> {
+    match header.encryption {
+        EncryptionAlgorithm::A128CBCHS256
+        | EncryptionAlgorithm::A192CBCHS384
+        | EncryptionAlgorithm::A256CBCHS512 => {
+            let encryptor = aes_cbc::AesCbcEncryptor::from_random(header.encryption)?;
+            let aad = header.to_aad()?;
+            let (ct, at) = encryptor.encrypt(payload, &aad)?;
+            let wk = wrap_key(header.algorithm, &encryptor.key, jwk)?;
+            Ok((header.protected()?, wk, encryptor.iv.clone(), ct, at))
+        }
+        EncryptionAlgorithm::A128GCM
+        | EncryptionAlgorithm::A192GCM
+        | EncryptionAlgorithm::A256GCM => {
+            let encryptor = aes_gcm::AesGcmEncryptor::from_random(header.encryption)?;
+            let aad = header.to_aad()?;
+            let (ct, at) = encryptor.encrypt(payload, &aad)?;
+            let wk = wrap_key(header.algorithm, &encryptor.key, jwk)?;
+            Ok((header.protected()?, wk, encryptor.iv.clone(), ct, at))
+        }
+        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
+    }
+}
+
+/// Extract JWE Content.
+fn extract_jwe_content(
+    jwk: Jwk,
+    content: JweContent,
+) -> Result<Vec<u8>, Error> {
+    let header: JweHeader = base64_decode_json(&content.0)?;
+    match header.encryption {
+        EncryptionAlgorithm::A128CBCHS256 |
+        EncryptionAlgorithm::A192CBCHS384 |
+        EncryptionAlgorithm::A256CBCHS512 => {
+            let wk = unwrap_key(header.algorithm, &content.1, &jwk)?;
+            let decryptor = aes_cbc::AesCbcEncryptor::from_slice(header.encryption, &wk, &content.2)?;
+            let aad = header.to_aad()?;
+            decryptor.decrypt(&content.3, &aad, &content.4)
+        },
+        EncryptionAlgorithm::A128GCM |
+        EncryptionAlgorithm::A192GCM |
+        EncryptionAlgorithm::A256GCM => {
+            let wk = unwrap_key(header.algorithm, &content.1, &jwk)?;
+            let decryptor = aes_gcm::AesGcmEncryptor::from_slice(header.encryption, &wk, &content.2)?;
+            let aad = header.to_aad()?;
+            decryptor.decrypt(&content.3, &aad, &content.4)
+        },
+        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
+    }
 }
 
 /// JSON Web Encryption (JWE) represents encrypted content using JSON-based data structures.
@@ -224,18 +289,24 @@ pub struct JweRecipient {
     pub encrypted_key: Option<String>,
 }
 
-type JweContent = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
-
 /// Wrap key.
-pub fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
     match alg {
-        #[cfg(feature = "jwe-aes")]
-        JweAlgorithm::A128KW |
-        JweAlgorithm::A192KW |
-        JweAlgorithm::A256KW => {
-            use self::aes::AesKw;
-            AesKw::wrap_key(alg, cek, jwk)
-        },
+        #[cfg(feature = "jwe-aes-kw")]
+        JweAlgorithm::A128KW | JweAlgorithm::A192KW | JweAlgorithm::A256KW => {
+            Ok(aes_kw::AesKw::wrap_key(alg, cek, jwk)?)
+        }
+        _ => Err(Error::UnimplementedAlgorithm(alg.to_string())),
+    }
+}
+
+/// Unwrap key.
+fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+    match alg {
+        #[cfg(feature = "jwe-aes-kw")]
+        JweAlgorithm::A128KW | JweAlgorithm::A192KW | JweAlgorithm::A256KW => {
+            Ok(aes_kw::AesKw::unwrap_key(alg, cek, jwk)?)
+        }
         _ => Err(Error::UnimplementedAlgorithm(alg.to_string())),
     }
 }
@@ -266,74 +337,64 @@ impl<K: ArrayLength<u8>, I: ArrayLength<u8>> RandomGenerator<K, I> {
     }
 }
 
-/// JWE encrypter.
-pub trait JweEncrypter {
-    /// Encrypt content to JSON.
+/// JWE encryptation.
+pub trait JweEncryption {
+    /// Creates from random generator.
     ///
     /// # Arguments
     ///
-    /// * `header` - JWE Header.
-    /// * `jwk` - JSON Web Key.
-    /// * `content` - Content to encrypt.
+    /// * `alg` - Encryption Algorithm.
     ///
     /// # Returns
     ///
-    /// * `Result<JweJson, Error>` - JWE JSON.
+    /// * `Self` - JWE Encryption.
     ///
-    fn encrypt<K, I>(
-        rg: &RandomGenerator<K, I>,
-        header: &JweHeader,
-        jwk: &Jwk,
-        content: &[u8],
-    ) -> Result<JweJson, Error>
+    fn from_random(alg: EncryptionAlgorithm) -> Result<Self, Error>
     where
-        K: ArrayLength<u8>,
-        I: ArrayLength<u8>;
+        Self: Sized;
 
-    /// Encrypt content to compact JWE.
+    /// Create from slice.
     ///
     /// # Arguments
     ///
-    /// * `header` - JWE Header.
-    /// * `jwk` - JSON Web Key.
-    /// * `content` - Content to encrypt.
+    /// * `alg` - Encryption Algorithm.
+    /// * `cek` - Content Encryption Key.
+    /// * `iv` - Initialization Vector.
     ///
     /// # Returns
     ///
-    /// * `Result<String, Error>` - Compact JWE.
+    /// * `Self` - JWE Encryption.
     ///
-    fn encrypt_compact<K, I>(
-        rg: &RandomGenerator<K, I>,
-        header: &JweHeader,
-        jwk: &Jwk,
-        content: &[u8],
-    ) -> Result<String, Error>
+    fn from_slice(alg: EncryptionAlgorithm, cek: &[u8], iv: &[u8]) -> Result<Self, Error>
     where
-        K: ArrayLength<u8>,
-        I: ArrayLength<u8>;
+        Self: Sized;
 
-    /// Additional Authenticated Data from JWE Header.
+    /// Encrypt content with authentication.
     ///
     /// # Arguments
     ///
-    /// * `header` - JWE Header.
+    /// * `content` - Content to encrypt.
+    /// * `aad` - Additional Authenticated Data.
     ///
     /// # Returns
     ///
-    /// * `Result<Vec<u8>, Error>` - Additional Authenticated Data.
+    /// * `Result<(Vec<u8>, Vec<u8>), Error>` - Encrypted content and authentication tag.
     ///
-    fn aad(header: &JweHeader) -> Result<Vec<u8>, Error> {
-        let header_bytes = base64_encode_json(header)?;
-        Ok(header_bytes.as_bytes().to_vec())
-    }
+    fn encrypt(&self, content: &[u8], aad: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error>;
 
-    /// Encrypt content.
-    fn encrypt_content(
-        header: &JweHeader,
-        cek: &[u8],
-        iv: &[u8],
-        content: &[u8],
-    ) -> Result<Vec<u8>, Error>;
+    /// Decrypt content with authentication.
+    ///
+    /// # Arguments
+    ///  
+    /// * `content` - Content to decrypt.
+    /// * `aad` - Additional Authenticated Data.
+    /// * `at` - Authentication Tag.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<u8>, Error>` - Decrypted content.
+    ///
+    fn decrypt(&self, content: &[u8], aad: &[u8], at: &[u8]) -> Result<Vec<u8>, Error>;
 }
 
 /// JWE decrypter.
@@ -420,36 +481,7 @@ mod tests {
         let result = base64_encode_json(&header).unwrap();
         assert_eq!(result, protected);
     }
-    /*
-        #[test]
-        #[cfg(feature = "jwe-aes-hmac")]
-        fn test_example_rfc7516_a3() {
-            let msg = b"Live long and prosper.";
-            let key = r#"
-            {
-                "kty":"oct",
-                "k":"GawgguFyGrWKav7AX4VKUg"
-            }"#;
 
-            let key: Jwk = serde_json::from_str(key).unwrap();
-            let compact = encode_compact_jwe(
-                JweAlgorithm::A128KW,
-                EncryptionAlgorithm::A128CBCHS256,
-                &key,
-                msg,
-            );
-            //let result = "eyJhbGciOiJBMTI4S1ciLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0.6KB707dM9YTIgHtLvtgWQ8mKwboJW3of9locizkDTHzBC2IlrT1oOQ.AxY8DCtDaGlsbGljb3RoZQ.KDlTtXchhZTGufMYmOYGS4HffxPSUrfmqCHXaI9wOGY.U0m_YmjN04DJvceFICbCVQ".to_owned();
-            assert!(compact.is_ok());
-
-            let compact = compact.unwrap();
-            let result = decode_compact_jwe(key, &compact);
-            assert!(result.is_ok());
-            let result = result.unwrap();
-            let text = String::from_utf8(result.clone()).unwrap();
-            assert_eq!(text, "Live long and prosper.");
-            assert_eq!(msg.to_vec(), result);
-        }
-    */
     #[test]
     fn test_random_generation() {
         use generic_array::typenum::{U16, U32};
@@ -457,5 +489,21 @@ mod tests {
         let generator = RandomGenerator::<U32, U16>::generate().unwrap();
         assert_eq!(generator.enc_key.len(), 32);
         assert_eq!(generator.iv.len(), 16);
+    }
+
+    #[test]
+    fn test_jwe_content() {
+        let header = JweHeader {
+            algorithm: JweAlgorithm::A128KW,
+            encryption: EncryptionAlgorithm::A128CBCHS256,
+            ..Default::default()
+        };
+        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
+
+        let payload = b"Hello world!";
+        let content = encode_compact_jwe(&header, &jwk, payload).unwrap();
+        let payload2 = decode_compact_jwe(jwk, &content).unwrap();
+        assert_eq!(payload, payload2.as_slice());
+
     }
 }
