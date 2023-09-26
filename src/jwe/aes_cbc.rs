@@ -20,18 +20,18 @@
 //! https://tools.ietf.org/html/rfc7518#section-5.2
 //!
 
-use super::{JweEncryption, RandomGenerator};
+use super::JweEncryption;
 
 use crate::{jwa::EncryptionAlgorithm, Error};
 
 use aes::{
-    cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit},
+    cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit,
+    crypto_common::generic_array},
     Aes128, Aes192, Aes256,
 };
 
 use hmac::{Hmac, Mac};
 
-use generic_array::typenum::{U16, U32, U48, U64};
 use sha2::{Sha256, Sha384, Sha512};
 
 use zeroize::Zeroize;
@@ -57,36 +57,6 @@ pub struct AesCbcEncryptor {
 }
 
 impl JweEncryption for AesCbcEncryptor {
-    fn from_random(alg: EncryptionAlgorithm) -> Result<Self, Error> {
-        let enc = match alg {
-            EncryptionAlgorithm::A128CBCHS256 => {
-                let rg = RandomGenerator::<U32, U16>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            EncryptionAlgorithm::A192CBCHS384 => {
-                let rg = RandomGenerator::<U48, U16>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            EncryptionAlgorithm::A256CBCHS512 => {
-                let rg = RandomGenerator::<U64, U16>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
-        };
-        Ok(enc)
-    }
 
     fn from_slice(alg: EncryptionAlgorithm, cek: &[u8], iv: &[u8]) -> Result<Self, Error>
     where
@@ -95,7 +65,7 @@ impl JweEncryption for AesCbcEncryptor {
         let enc = match alg {
             EncryptionAlgorithm::A128CBCHS256 => {
                 if cek.len() != 32 || iv.len() != 16 {
-                    return Err(Error::InvalidKey("slide size".to_string()));
+                    return Err(Error::InvalidKey("slice size".to_string()));
                 }
                 Self {
                     alg,
@@ -174,16 +144,16 @@ impl JweEncryption for AesCbcEncryptor {
 
     /// AES CBC decryption.
     /// [AES_CBC_HMAC_SHA2](https://www.rfc-editor.org/rfc/rfc7518#section-5.2.2.2)
-    fn decrypt(&self, content: &[u8], aad: &[u8], at: &[u8]) -> Result<Vec<u8>, Error> {
+    fn decrypt(&self, ciphertext: &[u8], aad: &[u8], at: &[u8]) -> Result<Vec<u8>, Error> {
         match self.alg {
             EncryptionAlgorithm::A128CBCHS256 => {
                 let key = generic_array::GenericArray::from_slice(&self.key[16..]);
                 let iv = generic_array::GenericArray::from_slice(&self.iv);
                 let ct = Aes128CbcDec::new(key, iv)
-                    .decrypt_padded_vec_mut::<Pkcs7>(content)
+                    .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
                     .map_err(|_| Error::Decrypt("AES CBC".to_string()))?;
                 let al = ((aad.len() * 8) as u64).to_be_bytes();
-                let input_hmac = [aad, iv, content, &al].concat();
+                let input_hmac = [aad, iv, ciphertext, &al].concat();
                 let mut mac = Hmac::<Sha256>::new_from_slice(&key[0..16])
                     .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
                 mac.update(&input_hmac);
@@ -197,10 +167,10 @@ impl JweEncryption for AesCbcEncryptor {
                 let key = generic_array::GenericArray::from_slice(&self.key[24..]);
                 let iv = generic_array::GenericArray::from_slice(&self.iv);
                 let ct = Aes192CbcDec::new(key, iv)
-                    .decrypt_padded_vec_mut::<Pkcs7>(content)
+                    .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
                     .map_err(|_| Error::Decrypt("AES CBC".to_string()))?;
                 let al = ((aad.len() * 8) as u64).to_be_bytes();
-                let input_hmac = [aad, iv, &ct, &al].concat();
+                let input_hmac = [aad, iv, ciphertext, &al].concat();
                 let mut mac = Hmac::<Sha384>::new_from_slice(&key[0..24])
                     .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
                 mac.update(&input_hmac);
@@ -214,10 +184,10 @@ impl JweEncryption for AesCbcEncryptor {
                 let key = generic_array::GenericArray::from_slice(&self.key[32..]);
                 let iv = generic_array::GenericArray::from_slice(&self.iv);
                 let ct = Aes256CbcDec::new(key, iv)
-                    .decrypt_padded_vec_mut::<Pkcs7>(content)
+                    .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
                     .map_err(|_| Error::Decrypt("AES CBC".to_string()))?;
                 let al = ((aad.len() * 8) as u64).to_be_bytes();
-                let input_hmac = [aad, iv, &ct, &al].concat();
+                let input_hmac = [aad, iv, ciphertext, &al].concat();
                 let mut mac = Hmac::<Sha512>::new_from_slice(&key[0..32])
                     .map_err(|_| Error::Decrypt("create HMAC".to_owned()))?;
                 mac.update(&input_hmac);

@@ -16,7 +16,9 @@
 //! https://tools.ietf.org/html/rfc3394
 //!
 
-use super::KeyWrapper;
+#![deny(missing_docs)]
+
+use super::{JweHeader, KeyWrapOrEncrypt};
 
 use crate::{
     jwa::JweAlgorithm,
@@ -33,71 +35,79 @@ use aes_kw::Kek;
 ///
 pub struct AesKw;
 
-impl KeyWrapper for AesKw {
-    fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+impl KeyWrapOrEncrypt for AesKw {
+    fn wrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
         let key = if let KeyType::OCT(key_data) = &jwk.key_type {
             &key_data.key.0
         } else {
             return Err(Error::InvalidKey(jwk.key_type.to_string()));
         };
-        let wk = match alg {
-            JweAlgorithm::A128KW => {
-                let wrapper = Kek::<Aes128>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
-                wrapper
-                    .wrap_vec(cek)
-                    .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?
-            }
-            JweAlgorithm::A192KW => {
-                let wrapper = Kek::<Aes192>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
-                wrapper
-                    .wrap_vec(cek)
-                    .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?
-            }
-            JweAlgorithm::A256KW => {
-                let wrapper = Kek::<Aes256>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
-                wrapper
-                    .wrap_vec(cek)
-                    .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?
-            }
-            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
-        };
-        Ok(wk)
+        aeskw_wrap(&header.algorithm, cek, key)
     }
 
-    fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+    fn unwrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
         let key = if let KeyType::OCT(key_data) = &jwk.key_type {
             &key_data.key.0
         } else {
             return Err(Error::InvalidKey(jwk.key_type.to_string()));
         };
-        let cek = match alg {
-            JweAlgorithm::A128KW => {
-                let wrapper = Kek::<Aes128>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
-                wrapper
-                    .unwrap_vec(cek)
-                    .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?
-            }
-            JweAlgorithm::A192KW => {
-                let wrapper = Kek::<Aes192>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
-                wrapper
-                    .unwrap_vec(cek)
-                    .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?
-            }
-            JweAlgorithm::A256KW => {
-                let wrapper = Kek::<Aes256>::try_from(key.as_slice())
-                    .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
-                wrapper
-                    .unwrap_vec(cek)
-                    .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?
-            }
-            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
-        };
-        Ok(cek)
+        aeskw_unwrap(&header.algorithm, cek, key)
+    }
+}
+
+/// AES Key Wrap.
+pub fn aeskw_wrap(alg: &JweAlgorithm, payload: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
+    match alg {
+        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW => {
+            let wrapper = Kek::<Aes128>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
+            Ok(wrapper
+                .wrap_vec(payload)
+                .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
+        }
+        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW => {
+            let wrapper = Kek::<Aes192>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
+            Ok(wrapper
+                .wrap_vec(payload)
+                .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
+        }
+        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW => {
+            let wrapper = Kek::<Aes256>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
+            Ok(wrapper
+                .wrap_vec(payload)
+                .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
+        }
+        _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
+    }
+}
+
+/// AES Key Unwrap.
+pub fn aeskw_unwrap(alg: &JweAlgorithm, ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
+    match alg {
+        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW => {
+            let wrapper = Kek::<Aes128>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
+            Ok(wrapper
+                .unwrap_vec(ciphertext)
+                .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
+        }
+        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW => {
+            let wrapper = Kek::<Aes192>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
+            Ok(wrapper
+                .unwrap_vec(ciphertext)
+                .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
+        }
+        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW => {
+            let wrapper = Kek::<Aes256>::try_from(key)
+                .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
+            Ok(wrapper
+                .unwrap_vec(ciphertext)
+                .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
+        }
+        _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
     }
 }
 
@@ -108,39 +118,47 @@ mod tests {
 
     #[test]
     fn test_wrap_unwrap_aes_kw() {
+        let mut header = JweHeader::new(JweAlgorithm::A128KW, Default::default());
+
         let cek = b"0123456789abcdef";
 
         let key = b"0123456789abcdef";
+
         let jwk = Jwk::create_oct(key).unwrap();
-        let wk = AesKw::wrap_key(JweAlgorithm::A128KW, cek, &jwk).unwrap();
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A128KW, &wk, &jwk).unwrap();
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk).unwrap();
+        let cek2 = AesKw::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek.as_slice(), cek2.as_slice());
 
+        header.algorithm = JweAlgorithm::A192KW;
         let key = b"0123456789abcdef01234567";
         let jwk = Jwk::create_oct(key).unwrap();
-        let wk = AesKw::wrap_key(JweAlgorithm::A192KW, cek, &jwk).unwrap();
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A192KW, &wk, &jwk).unwrap();
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk).unwrap();
+        let cek2 = AesKw::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek.as_slice(), cek2.as_slice());
 
+        header.algorithm = JweAlgorithm::A256KW;
         let key = b"0123456789abcdef0123456789abcdef";
         let jwk = Jwk::create_oct(key).unwrap();
-        let wk = AesKw::wrap_key(JweAlgorithm::A256KW, cek, &jwk).unwrap();
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A256KW, &wk, &jwk).unwrap();
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk).unwrap();
+        let cek2 = AesKw::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek.as_slice(), cek2.as_slice());
 
         let key = b"0123456789abcdef0123456789abcdef0123456789abcdef";
         let jwk = Jwk::create_oct(key).unwrap();
-        let wk = AesKw::wrap_key(JweAlgorithm::A128KW, cek, &jwk);
+        header.algorithm = JweAlgorithm::A128KW;
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk);
         assert!(wk.is_err());
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A128KW, cek, &jwk);
+        let cek2 = AesKw::unwrap_key(&mut header, cek, &jwk);
         assert!(cek2.is_err());
-        let wk = AesKw::wrap_key(JweAlgorithm::A192KW, cek, &jwk);
+        header.algorithm = JweAlgorithm::A192KW;
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk);
         assert!(wk.is_err());
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A192KW, cek, &jwk);
+        let cek2 = AesKw::unwrap_key(&mut header, cek, &jwk);
         assert!(cek2.is_err());
-        let wk = AesKw::wrap_key(JweAlgorithm::A256KW, cek, &jwk);
+        header.algorithm = JweAlgorithm::A256KW;
+        let wk = AesKw::wrap_key(&mut header, cek, &jwk);
         assert!(wk.is_err());
-        let cek2 = AesKw::unwrap_key(JweAlgorithm::A256KW, cek, &jwk);
+        let cek2 = AesKw::unwrap_key(&mut header, cek, &jwk);
         assert!(cek2.is_err());
     }
 }

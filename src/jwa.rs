@@ -137,6 +137,60 @@ pub enum JweAlgorithm {
     None,
 }
 
+impl JweAlgorithm {
+    /// Enumeration values to iterate.
+    pub const VALUES: [Self; 6] = [
+        Self::RSA1_5,
+        Self::RSAOAEP,
+        Self::RSAOAEP256,
+        Self::A128KW,
+        Self::A192KW,
+        Self::A256KW,
+    ];
+
+    /// When Key Wrapping, Key Encryption, or Key Agreement with Key
+    /// Wrapping are employed return false.
+    pub fn is_direct(&self) -> bool {
+        match self {
+            Self::Dir | Self::ECDHES => true,
+            _ => false,
+        }
+    }
+
+    /// When Direct Key Agreement or Key Agreement with Key Wrapping are
+    /// employed return true.
+    pub fn is_key_agreement(&self) -> bool {
+        match self {
+            Self::ECDHES | Self::ECDHESA128KW | Self::ECDHESA192KW | Self::ECDHESA256KW => true,
+            _ => false,
+        }
+    }
+
+    /// Key size in bytes or 0 if not applicable.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::RSA1_5 => 32,
+            Self::RSAOAEP => 32,
+            Self::RSAOAEP256 => 32,
+            Self::A128KW => 16,
+            Self::A192KW => 24,
+            Self::A256KW => 32,
+            Self::Dir => 0,
+            Self::ECDHES => 16,
+            Self::ECDHESA128KW => 16,
+            Self::ECDHESA192KW => 24,
+            Self::ECDHESA256KW => 32,
+            Self::A128GCMKW => 16,
+            Self::A192GCMKW => 24,
+            Self::A256GCMKW => 32,
+            Self::PBES2HS256A128KW => 16,
+            Self::PBES2HS384A192KW => 24,
+            Self::PBES2HS512A256KW => 32,
+            Self::None => 0,
+        }
+    }
+}
+
 impl Default for JweAlgorithm {
     fn default() -> Self {
         Self::None
@@ -207,6 +261,34 @@ pub enum EncryptionAlgorithm {
     /// None algorithm
     #[serde(rename = "none", alias = "None")]
     None,
+}
+
+impl EncryptionAlgorithm {
+    /// Enumeration values to iterate
+    pub const VALUES: [Self; 6] = [
+        Self::A128CBCHS256,
+        Self::A192CBCHS384,
+        Self::A256CBCHS512,
+        Self::A128GCM,
+        Self::A192GCM,
+        Self::A256GCM,
+    ];
+
+    /// Get the key size in bytes.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::A128CBCHS256 => 32,
+            Self::A192CBCHS384 => 48,
+            Self::A256CBCHS512 => 64,
+            Self::A128GCM => 16,
+            Self::A192GCM => 24,
+            Self::A256GCM => 32,
+            Self::C20P => 32,
+            Self::C20P192 => 24,
+            Self::C20P256 => 32,
+            Self::None => 0,
+        }
+    }
 }
 
 impl Default for EncryptionAlgorithm {

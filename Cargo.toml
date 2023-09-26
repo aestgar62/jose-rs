@@ -11,9 +11,10 @@ aes-gcm = { version = "0.10", optional = true }
 aes-kw = { version = "0.2", optional = true }
 base64 = "0.21"
 cbc = { version = "0.1", optional = true }
+concat-kdf = { version = "0.1", optional = true }
 ed25519-dalek = { version = "2.0", optional = true }
 elliptic-curve = { version = "0.13", optional = true }
-generic-array = "0.14"
+#generic-array = "0.14"
 getrandom = "0.2"
 k256 = { version = "0.13", optional = true }
 hmac = { version = "0.12", optional = true }
@@ -47,6 +48,8 @@ default = [
     "jwe-aes-cbc", 
     "jwe-aes-kw",
     "jwe-aes-gcm",
+    "jwe-rsa-kw",
+    "jwe-ecdh-kw",
     ]
 jwk-all = ["jwk-rsa"]
 jwk-ecdsa-all = ["jwk-k256", "jwk-p256", "jwk-p384", "jwk-p521"]
@@ -55,11 +58,11 @@ jws = ["jwk"]
 jwe = ["jwk"]
 jwk-rsa = ["rsa", "jwk", "num-traits", "num-bigint", "rsa/sha2", "rand", "sha1"] 
 jwk-eddsa = ["ed25519-dalek", "ed25519-dalek/rand_core", "jwk", "rand_core", "rand"]
-jwk-k256 = ["k256", "jwk-ecdsa", "rand_core", "rand"]
-jwk-p256 = ["p256", "jwk-ecdsa"]
-jwk-p384 = ["p384", "jwk-ecdsa"]
-jwk-p521 = ["p521", "jwk-ecdsa"]
-jwk-ecdsa = ["jwk", "elliptic-curve", "elliptic-curve/arithmetic", "elliptic-curve/sec1"]
+jwk-k256 = ["k256", "jwk-ec", "k256/ecdh","rand_core", "rand"]
+jwk-p256 = ["p256", "jwk-ec", "p256/ecdh"]
+jwk-p384 = ["p384", "jwk-ec", "p384/ecdh"]
+jwk-p521 = ["p521", "jwk-ec"]
+jwk-ec = ["jwk", "elliptic-curve", "elliptic-curve/arithmetic", "elliptic-curve/sec1"]
 jwk-okp = ["jwk-eddsa"]
 jwk-oct = ["jwk"]
 jwk-hmac = ["jwk-oct", "hmac", "sha2"]
@@ -68,3 +71,5 @@ jwe-aes-cbc = ["jwe-aes", "cbc", "cbc/alloc"]
 jwe-aes = ["jwe", "jwk-oct", "aes"]
 jwe-aes-kw = ["jwe-aes", "aes-kw", "aes-kw/alloc"]
 jwe-aes-gcm = ["jwe-aes", "aes-gcm", "aes-gcm/alloc"]
+jwe-rsa-kw = ["jwe", "jwk-rsa", "sha1"]
+jwe-ecdh-kw = ["jwe", "jwk-ec", "concat-kdf", "concat-kdf/std", "sha2"]

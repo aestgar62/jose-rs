@@ -49,6 +49,8 @@ pub enum Error {
     UnimplementedAlgorithm(String),
     /// Invalid Algorithm
     InvalidAlgorithm(String),
+    /// Unsupported Elliptic Curve
+    UnsupportedEllipticCurve(String),
 }
 
 impl std::fmt::Display for Error {
@@ -73,6 +75,9 @@ impl std::fmt::Display for Error {
             Error::InvalidKey(string) => write!(f, "Invalid Key: {}", string),
             Error::InvalidAlgorithm(string) => {
                 write!(f, "Invalid Algorithm: {}", string)
+            }
+            Error::UnsupportedEllipticCurve(string) => {
+                write!(f, "Unsupported Elliptic Curve: {}", string)
             }
         }
     }
@@ -178,5 +183,11 @@ mod tests {
     fn test_invalid_algorithm() {
         let err = Error::InvalidAlgorithm("error".to_owned());
         assert_eq!(err.to_string(), "Invalid Algorithm: error");
+    }
+
+    #[test]
+    fn test_unsupported_elliptic_curve() {
+        let err = Error::UnsupportedEllipticCurve("error".to_owned());
+        assert_eq!(err.to_string(), "Unsupported Elliptic Curve: error");
     }
 }

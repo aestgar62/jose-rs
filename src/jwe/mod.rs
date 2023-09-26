@@ -28,16 +28,19 @@ mod aes_cbc;
 #[cfg(feature = "jwe-aes-gcm")]
 mod aes_gcm;
 
+#[cfg(feature = "jwe-rsa-kw")]
+mod rsa_enc;
+
+#[cfg(feature = "jwe-ecdh-kw")]
+mod ecdh;
+
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
-    jwk::Jwk,
+    jwk::{Jwk, KeyType},
     utils::{base64_decode_json, base64_encode_json},
     Error,
 };
 
-use generic_array::{
-    ArrayLength, GenericArray,
-};
 use ptypes::{Base64urlUInt, Uri};
 
 use serde::{Deserialize, Serialize};
@@ -101,6 +104,18 @@ pub struct JweHeader {
     /// and/or [JWA] are being used that MUST be understood and processed.
     #[serde(rename = "crit", skip_serializing_if = "Option::is_none")]
     pub critical: Option<Vec<String>>,
+    /// The "epk" (ephemeral public key) Header Parameter is used to supply the value to be
+    /// used as the ephemeral public key for the agreement algorithm.
+    #[serde(rename = "epk", skip_serializing_if = "Option::is_none")]
+    pub ephemeral_public_key: Option<Jwk>,
+    /// The "apu" (agreement PartyUInfo) Header Parameter is used to supply the value to be
+    /// used as the ephemeral public key identifier for the agreement algorithm.
+    #[serde(rename = "apu", skip_serializing_if = "Option::is_none")]
+    pub agreement_partyuinfo: Option<String>,
+    /// The "apv" (agreement PartyVInfo) Header Parameter is used to supply the value to be
+    /// used as the ephemeral public key identifier for the agreement algorithm.
+    #[serde(rename = "apv", skip_serializing_if = "Option::is_none")]
+    pub agreement_partyvinfo: Option<String>,
 }
 
 impl JweHeader {
@@ -145,112 +160,294 @@ impl JweHeader {
     }
 }
 
-/// JWE Content.
-pub type JweContent = (String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+/// JWE Content Builder.
+pub struct JweBuilder {
+    /// JWE Header.
+    header: JweHeader,
+    /// Payload.
+    payload: Vec<u8>,
+    /// JWE Encrypted Key.
+    pub kek: Vec<u8>,
+    /// Content Encryption Key.
+    pub cek: Vec<u8>,
+    /// Initialization Vector.
+    pub iv: Vec<u8>,
+    /// Ciphertext.
+    pub ciphertext: Vec<u8>,
+    /// Authentication Tag.
+    pub at: Vec<u8>,
+}
+
+impl JweBuilder {
+    /// Creates a new JWE Content Builder.
+    pub fn new(header: &mut JweHeader, payload: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            header: header.clone(),
+            payload: payload.to_owned(),
+            kek: Vec::new(),
+            cek: Vec::new(),
+            iv: Vec::new(),
+            ciphertext: Vec::new(),
+            at: Vec::new(),
+        })
+    }
+
+    /// From compact JWE.
+    pub fn from_compact(jwe: &str) -> Result<Self, Error> {
+        let parts: Vec<&str> = jwe.splitn(5, '.').collect();
+        let b64_kek = Base64urlUInt::try_from(parts[1].to_owned())
+            .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+        let b64_iv = Base64urlUInt::try_from(parts[2].to_owned())
+            .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+        let b64_ciphertext = Base64urlUInt::try_from(parts[3].to_owned())
+            .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+        let b64_at = Base64urlUInt::try_from(parts[4].to_owned())
+            .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
+        let header: JweHeader = base64_decode_json(parts[0])?;
+        
+        Ok(Self {
+            header,
+            payload: Vec::new(),
+            kek: b64_kek.0,
+            cek: Vec::new(),
+            iv: b64_iv.0,
+            ciphertext: b64_ciphertext.0,
+            at: b64_at.0,
+        })
+    }
+
+    /// Build JWE.
+    pub fn build(&mut self, jwk: Jwk) -> Result<(), Error> {
+        let mut jwk = jwk;
+        let alg = &self.header.algorithm;
+        if alg.is_key_agreement() {
+            let (ss, epk) = ecdh::key_agreement(&jwk)?;
+            self.header.ephemeral_public_key = Some(epk);
+            let derived_key = ecdh::derive_key(&self.header, &ss)?;
+            if alg == &JweAlgorithm::ECDHES {
+                self.cek = derived_key;
+            } else {
+                jwk = Jwk::create_oct(&derived_key)?;
+            }
+        }
+        if !alg.is_direct() {
+            let mut buffer = vec![0u8; self.header.encryption.size()];
+            getrandom::getrandom(&mut buffer)
+                .map_err(|_| Error::Random("getrandom for Encryption Key".to_owned()))?;
+            self.cek = buffer;
+            self.kek = self.wrap_key(&jwk)?;
+        } else {
+            if alg == &JweAlgorithm::Dir {
+                self.cek = if let KeyType::OCT(key_data) = &jwk.key_type {
+                    key_data.key.0.clone()
+                } else {
+                    return Err(Error::InvalidKey(jwk.key_type.to_string()));
+                };
+            }
+        }
+        self.encrypt()
+    }
+
+    /// Extract JWE.
+    pub fn extract(&mut self, jwk: Jwk) -> Result<(), Error> {
+        let mut jwk = jwk;
+        let alg = &self.header.algorithm;
+        if alg.is_key_agreement() {
+            let ss = if let KeyType::OCT(key_data) = &jwk.key_type {
+                key_data.key.0.clone()
+            } else {
+                return Err(Error::InvalidKey(jwk.key_type.to_string()));
+            };
+            let derived_key = ecdh::derive_key(&self.header, &ss)?;
+            if alg == &JweAlgorithm::ECDHES {
+                self.cek = derived_key;
+            } else {
+                jwk = Jwk::create_oct(&derived_key)?;
+            }
+        }
+        if !alg.is_direct() {
+            self.cek = self.unwrap_key(&jwk)?;
+        } else {
+            if alg == &JweAlgorithm::Dir {
+                self.cek = if let KeyType::OCT(key_data) = jwk.key_type {
+                    key_data.key.0.clone()
+                } else {
+                    return Err(Error::InvalidKey(jwk.key_type.to_string()));
+                };
+            }
+        }
+        self.decrypt()?;
+        Ok(())
+    }
+
+    /// Build compact JWE.
+    pub fn compact_jwe(&self) -> Result<String, Error> {
+        let header = self.header.protected()?;
+        let b64_jek: Base64urlUInt = Base64urlUInt(self.kek.clone());
+        let b64_iv = Base64urlUInt(self.iv.clone());
+        let b64_ciphertext = Base64urlUInt(self.ciphertext.clone());
+        let b64_at = Base64urlUInt(self.at.clone());
+        let compact = format!(
+            "{}.{}.{}.{}.{}",
+            header, b64_jek, b64_iv, b64_ciphertext, b64_at
+        );
+        Ok(compact)
+    }
+
+    /// Encrypt content.
+    pub fn encrypt(&mut self) -> Result<(), Error> {
+        let aad = self.header.to_aad()?;
+        match self.header.encryption {
+            EncryptionAlgorithm::A128CBCHS256
+            | EncryptionAlgorithm::A192CBCHS384
+            | EncryptionAlgorithm::A256CBCHS512 => {
+                let mut buffer = vec![0u8; 16];
+                getrandom::getrandom(&mut buffer)
+                    .map_err(|_| Error::Random("getrandom for Initialization Vector".to_owned()))?;
+                self.iv = buffer;
+                let encryptor = aes_cbc::AesCbcEncryptor::from_slice(
+                    self.header.encryption,
+                    &self.cek,
+                    &self.iv,
+                )?;
+                let (ct, at) = encryptor.encrypt(&self.payload, &aad)?;
+                self.ciphertext = ct;
+                self.at = at;
+                Ok(())
+            }
+            EncryptionAlgorithm::A128GCM
+            | EncryptionAlgorithm::A192GCM
+            | EncryptionAlgorithm::A256GCM => {
+                let mut buffer = vec![0u8; 12];
+                getrandom::getrandom(&mut buffer)
+                    .map_err(|_| Error::Random("getrandom for Initialization Vector".to_owned()))?;
+                self.iv = buffer;
+                let encryptor = aes_gcm::AesGcmEncryptor::from_slice(
+                    self.header.encryption,
+                    &self.cek,
+                    &self.iv,
+                )?;
+                let (ct, at) = encryptor.encrypt(&self.payload, &aad)?;
+                self.ciphertext = ct;
+                self.at = at;
+                Ok(())
+            }
+            _ => {
+                return Err(Error::UnimplementedAlgorithm(
+                    self.header.encryption.to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Decrypt content.
+    pub fn decrypt(&mut self) -> Result<(), Error> {
+        let aad = self.header.to_aad()?;
+        match self.header.encryption {
+            EncryptionAlgorithm::A128CBCHS256
+            | EncryptionAlgorithm::A192CBCHS384
+            | EncryptionAlgorithm::A256CBCHS512 => {
+                let decryptor = aes_cbc::AesCbcEncryptor::from_slice(
+                    self.header.encryption,
+                    &self.cek,
+                    &self.iv,
+                )?;
+                let pt = decryptor.decrypt(&self.ciphertext, &aad, &self.at)?;
+                self.payload = pt;
+                Ok(())
+            }   
+            EncryptionAlgorithm::A128GCM
+            | EncryptionAlgorithm::A192GCM
+            | EncryptionAlgorithm::A256GCM => {
+                let decryptor = aes_gcm::AesGcmEncryptor::from_slice(
+                    self.header.encryption,
+                    &self.cek,
+                    &self.iv,
+                )?;
+                let pt = decryptor.decrypt(&self.ciphertext, &aad, &self.at)?;
+                self.payload = pt;
+                Ok(())
+            }
+            _ => {
+                return Err(Error::UnimplementedAlgorithm(
+                    self.header.encryption.to_string(),
+                ))
+            }
+        }
+    }
+
+    /// Wrap key.
+    fn wrap_key(&mut self, jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        match self.header.algorithm {
+            #[cfg(feature = "jwe-aes-kw")]
+            JweAlgorithm::A128KW
+            | JweAlgorithm::A192KW
+            | JweAlgorithm::A256KW
+            | JweAlgorithm::ECDHESA128KW
+            | JweAlgorithm::ECDHESA192KW
+            | JweAlgorithm::ECDHESA256KW => Ok(aes_kw::AesKw::wrap_key(
+                &mut self.header,
+                &self.cek,
+                jwk,
+            )?),
+            #[cfg(feature = "jwe-rsa-kw")]
+            JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
+                rsa_enc::RsaEncrypt::wrap_key(&mut self.header, &self.cek, jwk)?,
+            ),
+            _ => Err(Error::UnimplementedAlgorithm(
+                self.header.algorithm.to_string(),
+            )),
+        }
+    }
+
+    /// Unwrap key.
+    fn unwrap_key(&mut self, jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        match self.header.algorithm {
+            #[cfg(feature = "jwe-aes-kw")]
+            JweAlgorithm::A128KW
+            | JweAlgorithm::A192KW
+            | JweAlgorithm::A256KW
+            | JweAlgorithm::ECDHESA128KW
+            | JweAlgorithm::ECDHESA192KW
+            | JweAlgorithm::ECDHESA256KW => Ok(aes_kw::AesKw::unwrap_key(
+                &mut self.header,
+                &self.kek,
+                jwk,
+            )?),
+            #[cfg(feature = "jwe-rsa-kw")]
+            JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
+                rsa_enc::RsaEncrypt::unwrap_key(&mut self.header, &self.kek, jwk)?,
+            ),
+            _ => Err(Error::UnimplementedAlgorithm(
+                self.header.algorithm.to_string(),
+            )),
+        }
+    }
+}
 
 /// Encode JWE with default header
 pub fn encode_compact_jwe_default(
     alg: JweAlgorithm,
     enc: EncryptionAlgorithm,
-    jwk: &Jwk,
+    jwk: Jwk,
     payload: &[u8],
 ) -> Result<String, Error> {
     // create header
-    let header = JweHeader {
+    let mut header = JweHeader {
         algorithm: alg,
         encryption: enc,
         ..Default::default()
     };
-
-    encode_compact_jwe(&header, jwk, payload)
+    encode_compact_jwe(&mut header, jwk, payload)
 }
 
-/// Encode compact JWE content
-pub fn encode_compact_jwe(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<String, Error> {
-    let jwe_content = make_jwe_content(header, jwk, payload)?;
-    let b64_cek: Base64urlUInt = Base64urlUInt(jwe_content.1);
-    let b64_iv = Base64urlUInt(jwe_content.2);
-    let b64_ciphertext = Base64urlUInt(jwe_content.3);
-    let b64_at = Base64urlUInt(jwe_content.4);
-    let compact = format!(
-        "{}.{}.{}.{}.{}",
-        jwe_content.0, b64_cek, b64_iv, b64_ciphertext, b64_at
-    );
-    Ok(compact)
+/// Encode compact JWE.
+pub fn encode_compact_jwe(header: &mut JweHeader, jwk: Jwk, payload: &[u8]) -> Result<String, Error> {
+    let mut builder = JweBuilder::new(header, payload)?;
+    builder.build(jwk)?;
+    builder.compact_jwe()
 }
 
-/// Decode compact JWE.
-pub fn decode_compact_jwe(jwk: Jwk, jwe: &str) -> Result<Vec<u8>, Error> {
-    let parts: Vec<&str> = jwe.splitn(5, '.').collect();
-    let b64_cek = Base64urlUInt::try_from(parts[1].to_owned())
-        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
-    let b64_iv = Base64urlUInt::try_from(parts[2].to_owned())
-        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
-    let b64_ciphertext = Base64urlUInt::try_from(parts[3].to_owned())
-        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
-    let b64_at = Base64urlUInt::try_from(parts[4].to_owned())
-        .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
-
-    extract_jwe_content(jwk, (
-        parts[0].to_owned(),
-        b64_cek.0,
-        b64_iv.0,
-        b64_ciphertext.0,
-        b64_at.0,
-    ))
-}
-
-/// Make JWE Content.
-fn make_jwe_content(header: &JweHeader, jwk: &Jwk, payload: &[u8]) -> Result<JweContent, Error> {
-    match header.encryption {
-        EncryptionAlgorithm::A128CBCHS256
-        | EncryptionAlgorithm::A192CBCHS384
-        | EncryptionAlgorithm::A256CBCHS512 => {
-            let encryptor = aes_cbc::AesCbcEncryptor::from_random(header.encryption)?;
-            let aad = header.to_aad()?;
-            let (ct, at) = encryptor.encrypt(payload, &aad)?;
-            let wk = wrap_key(header.algorithm, &encryptor.key, jwk)?;
-            Ok((header.protected()?, wk, encryptor.iv.clone(), ct, at))
-        }
-        EncryptionAlgorithm::A128GCM
-        | EncryptionAlgorithm::A192GCM
-        | EncryptionAlgorithm::A256GCM => {
-            let encryptor = aes_gcm::AesGcmEncryptor::from_random(header.encryption)?;
-            let aad = header.to_aad()?;
-            let (ct, at) = encryptor.encrypt(payload, &aad)?;
-            let wk = wrap_key(header.algorithm, &encryptor.key, jwk)?;
-            Ok((header.protected()?, wk, encryptor.iv.clone(), ct, at))
-        }
-        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
-    }
-}
-
-/// Extract JWE Content.
-fn extract_jwe_content(
-    jwk: Jwk,
-    content: JweContent,
-) -> Result<Vec<u8>, Error> {
-    let header: JweHeader = base64_decode_json(&content.0)?;
-    match header.encryption {
-        EncryptionAlgorithm::A128CBCHS256 |
-        EncryptionAlgorithm::A192CBCHS384 |
-        EncryptionAlgorithm::A256CBCHS512 => {
-            let wk = unwrap_key(header.algorithm, &content.1, &jwk)?;
-            let decryptor = aes_cbc::AesCbcEncryptor::from_slice(header.encryption, &wk, &content.2)?;
-            let aad = header.to_aad()?;
-            decryptor.decrypt(&content.3, &aad, &content.4)
-        },
-        EncryptionAlgorithm::A128GCM |
-        EncryptionAlgorithm::A192GCM |
-        EncryptionAlgorithm::A256GCM => {
-            let wk = unwrap_key(header.algorithm, &content.1, &jwk)?;
-            let decryptor = aes_gcm::AesGcmEncryptor::from_slice(header.encryption, &wk, &content.2)?;
-            let aad = header.to_aad()?;
-            decryptor.decrypt(&content.3, &aad, &content.4)
-        },
-        _ => Err(Error::UnimplementedAlgorithm(header.encryption.to_string())),
-    }
-}
 
 /// JSON Web Encryption (JWE) represents encrypted content using JSON-based data structures.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -289,69 +486,8 @@ pub struct JweRecipient {
     pub encrypted_key: Option<String>,
 }
 
-/// Wrap key.
-fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
-    match alg {
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A128KW | JweAlgorithm::A192KW | JweAlgorithm::A256KW => {
-            Ok(aes_kw::AesKw::wrap_key(alg, cek, jwk)?)
-        }
-        _ => Err(Error::UnimplementedAlgorithm(alg.to_string())),
-    }
-}
-
-/// Unwrap key.
-fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
-    match alg {
-        #[cfg(feature = "jwe-aes-kw")]
-        JweAlgorithm::A128KW | JweAlgorithm::A192KW | JweAlgorithm::A256KW => {
-            Ok(aes_kw::AesKw::unwrap_key(alg, cek, jwk)?)
-        }
-        _ => Err(Error::UnimplementedAlgorithm(alg.to_string())),
-    }
-}
-
-/// Random Generator
-#[derive(Default, Debug)]
-pub struct RandomGenerator<K: ArrayLength<u8>, I: ArrayLength<u8>> {
-    /// Encription Key array
-    pub enc_key: GenericArray<u8, K>,
-    /// Initilization vector array
-    pub iv: GenericArray<u8, I>,
-}
-
-impl<K: ArrayLength<u8>, I: ArrayLength<u8>> RandomGenerator<K, I> {
-    /// Create new Random Generator and generate random values.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<Self, Error>` - Random Generator.
-    ///
-    pub fn generate() -> Result<Self, Error> {
-        let mut rg = Self::default();
-        getrandom::getrandom(&mut rg.enc_key)
-            .map_err(|_| Error::Random("getrandom for Encryption Key".to_owned()))?;
-        getrandom::getrandom(&mut rg.iv)
-            .map_err(|_| Error::Random("getrandom for Initialization Vector".to_owned()))?;
-        Ok(rg)
-    }
-}
-
 /// JWE encryptation.
 pub trait JweEncryption {
-    /// Creates from random generator.
-    ///
-    /// # Arguments
-    ///
-    /// * `alg` - Encryption Algorithm.
-    ///
-    /// # Returns
-    ///
-    /// * `Self` - JWE Encryption.
-    ///
-    fn from_random(alg: EncryptionAlgorithm) -> Result<Self, Error>
-    where
-        Self: Sized;
 
     /// Create from slice.
     ///
@@ -397,62 +533,35 @@ pub trait JweEncryption {
     fn decrypt(&self, content: &[u8], aad: &[u8], at: &[u8]) -> Result<Vec<u8>, Error>;
 }
 
-/// JWE decrypter.
-pub trait JweDecrypter {
-    /// Decrypt content.
-    ///
-    /// # Arguments
-    ///
-    /// * `jwk` - JSON Web Key.
-    /// * `jwe` - JWE content.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<Vec<u8>, Error>` - Decrypted content.
-    ///
-    fn decrypt(jwk: &Jwk, jwe: &JweJson) -> Result<Vec<u8>, Error>;
-
-    /// Decrypt content from compact JWE.
-    ///
-    /// # Arguments
-    ///
-    /// * `jwk` - JSON Web Key.
-    /// * `jwe` - Compact JWE.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<Vec<u8>, Error>` - Decrypted content.
-    ///
-    fn decrypt_compact(jwk: &Jwk, jwe: &str) -> Result<Vec<u8>, Error>;
-}
-
 /// Key wrapping.
-pub trait KeyWrapper {
-    /// Wrap key.
+pub trait KeyWrapOrEncrypt {
+    /// Wrap or encrypt key.
     ///
     /// # Arguments
     ///
+    /// * `header` - JWE Header.
     /// * `cek` - Content Encryption Key.
-    /// * `jwk` - JSON Web Key.
+    /// * `jwk` - JSON Web Key for wrapping or encryption.
     ///
     /// # Returns
     ///
     /// * `Result<Vec<u8>, Error>` - Wrapped key.
     ///
-    fn wrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
+    fn wrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
 
-    /// Unwrap key.
+    /// Unwrap or encrypt key.
     ///
     /// # Arguments
     ///
+    /// * `header` - JWE Header.
     /// * `cek` - Content Encryption Key.
-    /// * `jwk` - JSON Web Key.
+    /// * `jwk` - JSON Web Key for wrapping or encryption.
     ///
     /// # Returns
     ///
     /// * `Result<Vec<u8>, Error>` - Unwrapped key.
     ///
-    fn unwrap_key(alg: JweAlgorithm, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
+    fn unwrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error>;
 }
 
 #[cfg(test)]
@@ -483,27 +592,110 @@ mod tests {
     }
 
     #[test]
-    fn test_random_generation() {
-        use generic_array::typenum::{U16, U32};
+    fn test_jwe_builder() {
+        let mut header = JweHeader {
+            algorithm: JweAlgorithm::RSA1_5,
+            encryption: EncryptionAlgorithm::None,
+            ..Default::default()
+        };
+        let jwk = Jwk::create_rsa().unwrap();
+        let payload = b"Hello world!";
+        test_encrypt_decrypt(&mut header, &jwk, payload);
 
-        let generator = RandomGenerator::<U32, U16>::generate().unwrap();
-        assert_eq!(generator.enc_key.len(), 32);
-        assert_eq!(generator.iv.len(), 16);
+        header.algorithm = JweAlgorithm::RSAOAEP;
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::RSAOAEP256;
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::A128KW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::A192KW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef01234567").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::A256KW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+    }
+
+    fn test_encrypt_decrypt(header: &mut JweHeader, jwk: &Jwk, payload: &[u8]) {
+        for value in EncryptionAlgorithm::VALUES {
+            header.encryption = value;
+            let mut builder = JweBuilder::new(header, payload).unwrap();
+            builder.build(jwk.clone()).unwrap();
+            let compact = builder.compact_jwe().unwrap();
+            let mut jwe = JweBuilder::from_compact(&compact).unwrap();
+            jwe.extract(jwk.clone()).unwrap();
+            assert_eq!(jwe.payload, payload);
+        }
     }
 
     #[test]
-    fn test_jwe_content() {
-        let header = JweHeader {
-            algorithm: JweAlgorithm::A128KW,
+    fn test_direct_mode() {
+        let mut header = JweHeader {
+            algorithm: JweAlgorithm::Dir,
             encryption: EncryptionAlgorithm::A128CBCHS256,
             ..Default::default()
         };
-        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
-
         let payload = b"Hello world!";
-        let content = encode_compact_jwe(&header, &jwk, payload).unwrap();
-        let payload2 = decode_compact_jwe(jwk, &content).unwrap();
-        assert_eq!(payload, payload2.as_slice());
 
+        for value in EncryptionAlgorithm::VALUES {
+            header.encryption = value;
+            let bytes = vec![0x0u8; value.size()];
+            let jwk = Jwk::create_oct(&bytes).unwrap();
+            let mut builder = JweBuilder::new(&mut header, payload).unwrap();
+            builder.build(jwk.clone()).unwrap();
+            let compact = builder.compact_jwe().unwrap();
+            let mut jwe = JweBuilder::from_compact(&compact).unwrap();
+            jwe.extract(jwk).unwrap();
+            assert_eq!(jwe.payload, payload);
+        }
+    }
+
+    #[test]
+    fn test_key_agreement() {
+        let mut header = JweHeader {
+            algorithm: JweAlgorithm::ECDHES,
+            encryption: EncryptionAlgorithm::A128CBCHS256,
+            ..Default::default()
+        };
+        let payload = b"Hello world!";
+        test_build_extract_key_agreement(&mut header, payload);
+
+        header.algorithm = JweAlgorithm::ECDHESA128KW;
+        test_build_extract_key_agreement(&mut header, payload);
+
+        header.algorithm = JweAlgorithm::ECDHESA192KW;
+        test_build_extract_key_agreement(&mut header, payload);
+
+        header.algorithm = JweAlgorithm::ECDHESA256KW;
+        test_build_extract_key_agreement(&mut header, payload);
+    }
+
+    fn test_build_extract_key_agreement(header: &mut JweHeader, payload: &[u8]) {
+        use k256::{PublicKey, ecdh::EphemeralSecret};
+        use rand_core::OsRng;
+
+        for value in EncryptionAlgorithm::VALUES {
+            header.encryption = value;
+            let esk = EphemeralSecret::random(&mut OsRng);
+            let jwk = Jwk::try_from(&esk.public_key()).unwrap();
+            let mut builder = JweBuilder::new(header, payload).unwrap();
+            builder.build(jwk.clone()).unwrap();
+            let compact = builder.compact_jwe().unwrap();
+
+            let mut jwe = JweBuilder::from_compact(&compact).unwrap();
+            let epk = jwe.header.ephemeral_public_key.clone().unwrap();
+            let pk = PublicKey::try_from(&epk).unwrap();
+            let ss = esk.diffie_hellman(&pk);
+            let jwk = Jwk::create_oct(ss.raw_secret_bytes()).unwrap();
+            jwe.extract(jwk).unwrap();
+
+            assert_eq!(jwe.payload, payload);
+        }
     }
 }

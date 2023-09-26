@@ -16,7 +16,7 @@
 //! https://tools.ietf.org/html/rfc7518#section-5.3
 //!
 
-use super::{JweEncryption, RandomGenerator};
+use super::JweEncryption;
 
 use crate::{jwa::EncryptionAlgorithm, Error};
 
@@ -25,9 +25,9 @@ use aes::{Aes128, Aes192, Aes256};
 use ::aes_gcm::{
     aead::{Aead, Payload},
     AesGcm, Key, KeyInit, Nonce,
+    aead::generic_array::typenum::U12,
 };
 
-use generic_array::typenum::{U12, U16, U24, U32};
 use zeroize::Zeroize;
 
 type AesGcm128 = AesGcm<Aes128, U12>;
@@ -47,36 +47,6 @@ pub struct AesGcmEncryptor {
 }
 
 impl JweEncryption for AesGcmEncryptor {
-    fn from_random(alg: EncryptionAlgorithm) -> Result<Self, Error> {
-        let enc = match alg {
-            EncryptionAlgorithm::A128GCM => {
-                let rg = RandomGenerator::<U16, U12>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            EncryptionAlgorithm::A192GCM => {
-                let rg = RandomGenerator::<U24, U12>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            EncryptionAlgorithm::A256GCM => {
-                let rg = RandomGenerator::<U32, U12>::generate()?;
-                Self {
-                    alg,
-                    key: rg.enc_key.to_vec(),
-                    iv: rg.iv.to_vec(),
-                }
-            }
-            _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
-        };
-        Ok(enc)
-    }
 
     fn from_slice(alg: EncryptionAlgorithm, cek: &[u8], iv: &[u8]) -> Result<Self, Error>
     where

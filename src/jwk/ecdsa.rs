@@ -19,6 +19,8 @@
 
 use crate::error::Error;
 
+use super::{Jwk, KeyType};
+
 use ptypes::Base64urlUInt;
 
 use elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
@@ -48,6 +50,33 @@ pub struct ECData {
 }
 
 // Secp256k1 curve
+
+#[cfg(feature = "jwk-k256")]
+impl TryFrom<&k256::PublicKey> for Jwk {
+    type Error = Error;
+    fn try_from(pk: &k256::PublicKey) -> Result<Self, Self::Error> {
+        let ec_data = ECData::try_from(pk)?;
+        Ok(Self {
+            key_type: KeyType::EC(ec_data),
+            ..Default::default()
+        })
+    }
+}
+
+#[cfg(feature = "jwk-k256")]
+impl TryFrom<&Jwk> for k256::PublicKey {
+    type Error = Error;
+    fn try_from(jwk: &Jwk) -> Result<Self, Self::Error> {
+        let ec_data = if let KeyType::EC(ec_data) = &jwk.key_type {
+            ec_data
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let pk = k256::PublicKey::try_from(ec_data)?;
+        Ok(pk)
+    }
+}
+
 #[cfg(feature = "jwk-k256")]
 impl TryFrom<&k256::SecretKey> for ECData {
     type Error = Error;
@@ -131,6 +160,32 @@ impl TryFrom<&ECData> for k256::PublicKey {
 // P-256
 
 #[cfg(feature = "jwk-p256")]
+impl TryFrom<&p256::PublicKey> for Jwk {
+    type Error = Error;
+    fn try_from(pk: &p256::PublicKey) -> Result<Self, Self::Error> {
+        let ec_data = ECData::try_from(pk)?;
+        Ok(Self {
+            key_type: KeyType::EC(ec_data),
+            ..Default::default()
+        })
+    }
+}
+
+#[cfg(feature = "jwk-p256")]
+impl TryFrom<&Jwk> for p256::PublicKey {
+    type Error = Error;
+    fn try_from(jwk: &Jwk) -> Result<Self, Self::Error> {
+        let ec_data = if let KeyType::EC(ec_data) = &jwk.key_type {
+            ec_data
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let pk = p256::PublicKey::try_from(ec_data)?;
+        Ok(pk)
+    }
+}
+
+#[cfg(feature = "jwk-p256")]
 impl TryFrom<&p256::SecretKey> for ECData {
     type Error = Error;
     fn try_from(sk: &p256::SecretKey) -> Result<Self, Self::Error> {
@@ -211,6 +266,32 @@ impl TryFrom<&ECData> for p256::PublicKey {
 }
 
 // P-384
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&p384::PublicKey> for Jwk {
+    type Error = Error;
+    fn try_from(pk: &p384::PublicKey) -> Result<Self, Self::Error> {
+        let ec_data = ECData::try_from(pk)?;
+        Ok(Self {
+            key_type: KeyType::EC(ec_data),
+            ..Default::default()
+        })
+    }
+}
+
+#[cfg(feature = "jwk-p384")]
+impl TryFrom<&Jwk> for p384::PublicKey {
+    type Error = Error;
+    fn try_from(jwk: &Jwk) -> Result<Self, Self::Error> {
+        let ec_data = if let KeyType::EC(ec_data) = &jwk.key_type {
+            ec_data
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let pk = p384::PublicKey::try_from(ec_data)?;
+        Ok(pk)
+    }
+}
 
 #[cfg(feature = "jwk-p384")]
 impl TryFrom<&p384::SecretKey> for ECData {

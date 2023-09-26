@@ -19,7 +19,7 @@
 
 #![deny(missing_docs)]
 
-#[cfg(feature = "jwk-ecdsa")]
+#[cfg(feature = "jwk-ec")]
 mod ecdsa;
 #[cfg(feature = "jwk-okp")]
 mod okp;
@@ -29,7 +29,7 @@ mod symmetric;
 
 use std::fmt::Display;
 
-#[cfg(feature = "jwk-ecdsa")]
+#[cfg(feature = "jwk-ec")]
 pub use self::ecdsa::ECData;
 #[cfg(feature = "jwk-okp")]
 pub use self::okp::OctetKeyPairData;
@@ -60,7 +60,7 @@ pub enum KeyType {
     #[serde(rename = "okp")]
     OKP(OctetKeyPairData),
     /// EC
-    #[cfg(feature = "jwk-ecdsa")]
+    #[cfg(feature = "jwk-ec")]
     EC(ECData),
     /// Symmetric Keys
     #[serde(rename = "oct")]
@@ -75,7 +75,7 @@ impl KeyType {
             Self::RSA(_) => "RSA",
             #[cfg(feature = "jwk-eddsa")]
             Self::OKP(_) => "okp",
-            #[cfg(feature = "jwk-ecdsa")]
+            #[cfg(feature = "jwk-ec")]
             Self::EC(_) => "EC",
             Self::OCT(_) => "oct",
         }
@@ -95,7 +95,7 @@ impl Display for KeyType {
             Self::RSA(_) => write!(f, "RSA"),
             #[cfg(feature = "jwk-eddsa")]
             Self::OKP(_) => write!(f, "OKP"),
-            #[cfg(feature = "jwk-ecdsa")]
+            #[cfg(feature = "jwk-ec")]
             Self::EC(_) => write!(f, "EC"),
             Self::OCT(_) => write!(f, "OCT"),
         }
