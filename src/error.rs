@@ -51,6 +51,8 @@ pub enum Error {
     InvalidAlgorithm(String),
     /// Unsupported Elliptic Curve
     UnsupportedEllipticCurve(String),
+    /// Invalid Header
+    InvalidHeader(String),
 }
 
 impl std::fmt::Display for Error {
@@ -79,6 +81,7 @@ impl std::fmt::Display for Error {
             Error::UnsupportedEllipticCurve(string) => {
                 write!(f, "Unsupported Elliptic Curve: {}", string)
             }
+            Error::InvalidHeader(string) => write!(f, "Invalid Header: {}", string),
         }
     }
 }
@@ -189,5 +192,11 @@ mod tests {
     fn test_unsupported_elliptic_curve() {
         let err = Error::UnsupportedEllipticCurve("error".to_owned());
         assert_eq!(err.to_string(), "Unsupported Elliptic Curve: error");
+    }
+
+    #[test]
+    fn test_invalid_header() {
+        let err = Error::InvalidHeader("error".to_owned());
+        assert_eq!(err.to_string(), "Invalid Header: error");
     }
 }

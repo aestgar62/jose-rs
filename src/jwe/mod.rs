@@ -34,6 +34,9 @@ mod rsa_enc;
 #[cfg(feature = "jwe-ecdh-kw")]
 mod ecdh;
 
+#[cfg(feature = "jwe-pbkdf2-kw")]
+mod pbkdf2;
+
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
     jwk::{Jwk, KeyType},
@@ -116,6 +119,22 @@ pub struct JweHeader {
     /// used as the ephemeral public key identifier for the agreement algorithm.
     #[serde(rename = "apv", skip_serializing_if = "Option::is_none")]
     pub agreement_partyvinfo: Option<String>,
+    /// The "p2s" (PBES2 salt Input) Header Parameter is used to supply the value to be
+    /// used as the PBES2 salt input for the PBES2 key derivation function.
+    #[serde(rename = "p2s", skip_serializing_if = "Option::is_none")]
+    pub p2_salt_input: Option<Base64urlUInt>,
+    /// The "p2c" (PBES2 count) Header Parameter is used to supply the value to be
+    /// used as the PBES2 count input for the PBES2 key derivation function.
+    #[serde(rename = "p2c", skip_serializing_if = "Option::is_none")]
+    pub p2_count: Option<u32>,
+    /// The "iv" (initialization vector) Header Parameter is used to supply the value to be
+    /// used as the initialization vector when using the "A128GCMKW", "A192GCMKW" and "A256GCMKW".
+    #[serde(rename = "iv", skip_serializing_if = "Option::is_none")]
+    pub initialization_vector: Option<Base64urlUInt>,
+    /// The "tag" (authentication tag) Header Parameter is used to supply the value to be
+    /// used as the authentication tag when using the "A128GCMKW", "A192GCMKW" and "A256GCMKW".
+    #[serde(rename = "tag", skip_serializing_if = "Option::is_none")]
+    pub authentication_tag: Option<Base64urlUInt>,
 }
 
 impl JweHeader {
@@ -204,7 +223,7 @@ impl JweBuilder {
         let b64_at = Base64urlUInt::try_from(parts[4].to_owned())
             .map_err(|_| Error::Decode("base64url decode".to_owned()))?;
         let header: JweHeader = base64_decode_json(parts[0])?;
-        
+
         Ok(Self {
             header,
             payload: Vec::new(),
@@ -236,14 +255,12 @@ impl JweBuilder {
                 .map_err(|_| Error::Random("getrandom for Encryption Key".to_owned()))?;
             self.cek = buffer;
             self.kek = self.wrap_key(&jwk)?;
-        } else {
-            if alg == &JweAlgorithm::Dir {
-                self.cek = if let KeyType::OCT(key_data) = &jwk.key_type {
-                    key_data.key.0.clone()
-                } else {
-                    return Err(Error::InvalidKey(jwk.key_type.to_string()));
-                };
-            }
+        } else if alg == &JweAlgorithm::Dir {
+            self.cek = if let KeyType::OCT(key_data) = &jwk.key_type {
+                key_data.key.0.clone()
+            } else {
+                return Err(Error::InvalidKey(jwk.key_type.to_string()));
+            };
         }
         self.encrypt()
     }
@@ -266,15 +283,14 @@ impl JweBuilder {
             }
         }
         if !alg.is_direct() {
-            self.cek = self.unwrap_key(&jwk)?;
-        } else {
-            if alg == &JweAlgorithm::Dir {
-                self.cek = if let KeyType::OCT(key_data) = jwk.key_type {
-                    key_data.key.0.clone()
-                } else {
-                    return Err(Error::InvalidKey(jwk.key_type.to_string()));
-                };
-            }
+            let result = self.unwrap_key(&jwk);
+            self.cek = result?;
+        } else if alg == &JweAlgorithm::Dir {
+            self.cek = if let KeyType::OCT(key_data) = jwk.key_type {
+                key_data.key.0
+            } else {
+                return Err(Error::InvalidKey(jwk.key_type.to_string()));
+            };
         }
         self.decrypt()?;
         Ok(())
@@ -333,7 +349,7 @@ impl JweBuilder {
                 Ok(())
             }
             _ => {
-                return Err(Error::UnimplementedAlgorithm(
+                Err(Error::UnimplementedAlgorithm(
                     self.header.encryption.to_string(),
                 ))
             }
@@ -355,7 +371,7 @@ impl JweBuilder {
                 let pt = decryptor.decrypt(&self.ciphertext, &aad, &self.at)?;
                 self.payload = pt;
                 Ok(())
-            }   
+            }
             EncryptionAlgorithm::A128GCM
             | EncryptionAlgorithm::A192GCM
             | EncryptionAlgorithm::A256GCM => {
@@ -369,7 +385,7 @@ impl JweBuilder {
                 Ok(())
             }
             _ => {
-                return Err(Error::UnimplementedAlgorithm(
+                Err(Error::UnimplementedAlgorithm(
                     self.header.encryption.to_string(),
                 ))
             }
@@ -385,15 +401,24 @@ impl JweBuilder {
             | JweAlgorithm::A256KW
             | JweAlgorithm::ECDHESA128KW
             | JweAlgorithm::ECDHESA192KW
-            | JweAlgorithm::ECDHESA256KW => Ok(aes_kw::AesKw::wrap_key(
-                &mut self.header,
-                &self.cek,
-                jwk,
-            )?),
+            | JweAlgorithm::ECDHESA256KW => {
+                Ok(aes_kw::AesKw::wrap_key(&mut self.header, &self.cek, jwk)?)
+            }
             #[cfg(feature = "jwe-rsa-kw")]
             JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
                 rsa_enc::RsaEncrypt::wrap_key(&mut self.header, &self.cek, jwk)?,
             ),
+            JweAlgorithm::A128GCMKW
+            | JweAlgorithm::A192GCMKW
+            | JweAlgorithm::A256GCMKW => {
+                Ok(aes_gcm::AesGcmKw::wrap_key(&mut self.header, &self.cek, jwk)?)
+            }
+            JweAlgorithm::PBES2HS256A128KW
+            | JweAlgorithm::PBES2HS384A192KW
+            | JweAlgorithm::PBES2HS512A256KW => {
+                let key = pbkdf2::derive_key(&self.header, jwk)?;
+                Ok(aes_kw::aeskw_wrap(&self.header.algorithm, &self.cek, &key)?)
+            },
             _ => Err(Error::UnimplementedAlgorithm(
                 self.header.algorithm.to_string(),
             )),
@@ -409,15 +434,25 @@ impl JweBuilder {
             | JweAlgorithm::A256KW
             | JweAlgorithm::ECDHESA128KW
             | JweAlgorithm::ECDHESA192KW
-            | JweAlgorithm::ECDHESA256KW => Ok(aes_kw::AesKw::unwrap_key(
-                &mut self.header,
-                &self.kek,
-                jwk,
-            )?),
+            | JweAlgorithm::ECDHESA256KW => {
+                Ok(aes_kw::AesKw::unwrap_key(&mut self.header, &self.kek, jwk)?)
+            }
             #[cfg(feature = "jwe-rsa-kw")]
             JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
                 rsa_enc::RsaEncrypt::unwrap_key(&mut self.header, &self.kek, jwk)?,
             ),
+            JweAlgorithm::A128GCMKW
+            | JweAlgorithm::A192GCMKW
+            | JweAlgorithm::A256GCMKW => {
+                Ok(aes_gcm::AesGcmKw::unwrap_key(&mut self.header, &self.kek, jwk)?)
+            },
+            JweAlgorithm::PBES2HS256A128KW
+            | JweAlgorithm::PBES2HS384A192KW
+            | JweAlgorithm::PBES2HS512A256KW => {
+                let key = pbkdf2::derive_key(&self.header, jwk)?;
+                let result = aes_kw::aeskw_unwrap(&self.header.algorithm, &self.kek, &key);
+                Ok(result?)
+            },
             _ => Err(Error::UnimplementedAlgorithm(
                 self.header.algorithm.to_string(),
             )),
@@ -442,12 +477,15 @@ pub fn encode_compact_jwe_default(
 }
 
 /// Encode compact JWE.
-pub fn encode_compact_jwe(header: &mut JweHeader, jwk: Jwk, payload: &[u8]) -> Result<String, Error> {
+pub fn encode_compact_jwe(
+    header: &mut JweHeader,
+    jwk: Jwk,
+    payload: &[u8],
+) -> Result<String, Error> {
     let mut builder = JweBuilder::new(header, payload)?;
     builder.build(jwk)?;
     builder.compact_jwe()
 }
-
 
 /// JSON Web Encryption (JWE) represents encrypted content using JSON-based data structures.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -488,7 +526,6 @@ pub struct JweRecipient {
 
 /// JWE encryptation.
 pub trait JweEncryption {
-
     /// Create from slice.
     ///
     /// # Arguments
@@ -608,6 +645,18 @@ mod tests {
         header.algorithm = JweAlgorithm::RSAOAEP256;
         test_encrypt_decrypt(&mut header, &jwk, payload);
 
+        header.algorithm = JweAlgorithm::A128GCMKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::A192GCMKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef01234567").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::A256GCMKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
         header.algorithm = JweAlgorithm::A128KW;
         let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
         test_encrypt_decrypt(&mut header, &jwk, payload);
@@ -620,6 +669,17 @@ mod tests {
         let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
         test_encrypt_decrypt(&mut header, &jwk, payload);
 
+        header.algorithm = JweAlgorithm::PBES2HS256A128KW;
+        header.p2_salt_input = Some(Base64urlUInt(b"0123456789abcdef".to_vec()));
+        header.p2_count = Some(4096);
+        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::PBES2HS384A192KW;
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::PBES2HS512A256KW;
+        test_encrypt_decrypt(&mut header, &jwk, payload);
     }
 
     fn test_encrypt_decrypt(header: &mut JweHeader, jwk: &Jwk, payload: &[u8]) {
@@ -677,7 +737,7 @@ mod tests {
     }
 
     fn test_build_extract_key_agreement(header: &mut JweHeader, payload: &[u8]) {
-        use k256::{PublicKey, ecdh::EphemeralSecret};
+        use k256::{ecdh::EphemeralSecret, PublicKey};
         use rand_core::OsRng;
 
         for value in EncryptionAlgorithm::VALUES {
@@ -692,7 +752,7 @@ mod tests {
             let epk = jwe.header.ephemeral_public_key.clone().unwrap();
             let pk = PublicKey::try_from(&epk).unwrap();
             let ss = esk.diffie_hellman(&pk);
-            let jwk = Jwk::create_oct(ss.raw_secret_bytes()).unwrap();
+            let jwk = Jwk::create_oct(ss.raw_secret_bytes().as_slice()).unwrap();
             jwe.extract(jwk).unwrap();
 
             assert_eq!(jwe.payload, payload);

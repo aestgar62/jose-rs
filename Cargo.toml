@@ -23,6 +23,7 @@ num-traits = { version= "0.2.9", default-features = false, features = ["libm"], 
 p256 = { version = "0.13", optional = true }
 p384 = { version = "0.13", optional = true }
 p521 = { version = "0.13", optional = true }
+pbkdf2 = { version = "0.12", optional = true }
 ptypes = { git = "https://github.com/aestgar62/ptypes.git", version = "0.1.7" }
 rand = { version = "0.8.1", features = ["getrandom"], optional = true }
 rand_core = { version = "0.6", optional = true }
@@ -50,6 +51,7 @@ default = [
     "jwe-aes-gcm",
     "jwe-rsa-kw",
     "jwe-ecdh-kw",
+    "jwe-pbkdf2-kw",
     ]
 jwk-all = ["jwk-rsa"]
 jwk-ecdsa-all = ["jwk-k256", "jwk-p256", "jwk-p384", "jwk-p521"]
@@ -73,3 +75,4 @@ jwe-aes-kw = ["jwe-aes", "aes-kw", "aes-kw/alloc"]
 jwe-aes-gcm = ["jwe-aes", "aes-gcm", "aes-gcm/alloc"]
 jwe-rsa-kw = ["jwe", "jwk-rsa", "sha1"]
 jwe-ecdh-kw = ["jwe", "jwk-ec", "concat-kdf", "concat-kdf/std", "sha2"]
+jwe-pbkdf2-kw = ["jwe", "pbkdf2", "sha2", "pbkdf2/hmac"]

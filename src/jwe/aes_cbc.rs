@@ -25,8 +25,10 @@ use super::JweEncryption;
 use crate::{jwa::EncryptionAlgorithm, Error};
 
 use aes::{
-    cipher::{block_padding::Pkcs7, BlockDecryptMut, BlockEncryptMut, KeyIvInit,
-    crypto_common::generic_array},
+    cipher::{
+        block_padding::Pkcs7, crypto_common::generic_array, BlockDecryptMut, BlockEncryptMut,
+        KeyIvInit,
+    },
     Aes128, Aes192, Aes256,
 };
 
@@ -57,7 +59,6 @@ pub struct AesCbcEncryptor {
 }
 
 impl JweEncryption for AesCbcEncryptor {
-
     fn from_slice(alg: EncryptionAlgorithm, cek: &[u8], iv: &[u8]) -> Result<Self, Error>
     where
         Self: Sized,

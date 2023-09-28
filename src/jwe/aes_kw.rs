@@ -58,56 +58,56 @@ impl KeyWrapOrEncrypt for AesKw {
 /// AES Key Wrap.
 pub fn aeskw_wrap(alg: &JweAlgorithm, payload: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
     match alg {
-        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW => {
+        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW | JweAlgorithm::PBES2HS256A128KW => {
             let wrapper = Kek::<Aes128>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
             Ok(wrapper
                 .wrap_vec(payload)
                 .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
         }
-        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW => {
+        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW | JweAlgorithm::PBES2HS384A192KW => {
             let wrapper = Kek::<Aes192>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
             Ok(wrapper
                 .wrap_vec(payload)
                 .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
         }
-        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW => {
+        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW | JweAlgorithm::PBES2HS512A256KW => {
             let wrapper = Kek::<Aes256>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
             Ok(wrapper
                 .wrap_vec(payload)
                 .map_err(|_| Error::Encrypt("AESKW wrap".to_string()))?)
         }
-        _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
+        _ => Err(Error::InvalidAlgorithm(alg.to_string())),
     }
 }
 
 /// AES Key Unwrap.
 pub fn aeskw_unwrap(alg: &JweAlgorithm, ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
     match alg {
-        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW => {
+        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW | JweAlgorithm::PBES2HS256A128KW=> {
             let wrapper = Kek::<Aes128>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
             Ok(wrapper
                 .unwrap_vec(ciphertext)
                 .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
         }
-        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW => {
+        JweAlgorithm::A192KW | JweAlgorithm::ECDHESA192KW | JweAlgorithm::PBES2HS384A192KW => {
             let wrapper = Kek::<Aes192>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 24".to_string()))?;
             Ok(wrapper
                 .unwrap_vec(ciphertext)
                 .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
         }
-        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW => {
+        JweAlgorithm::A256KW | JweAlgorithm::ECDHESA256KW | JweAlgorithm::PBES2HS512A256KW => {
             let wrapper = Kek::<Aes256>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 32".to_string()))?;
             Ok(wrapper
                 .unwrap_vec(ciphertext)
                 .map_err(|_| Error::Decrypt("AESKW unwrap".to_string()))?)
         }
-        _ => return Err(Error::InvalidAlgorithm(alg.to_string())),
+        _ => Err(Error::InvalidAlgorithm(alg.to_string())),
     }
 }
 

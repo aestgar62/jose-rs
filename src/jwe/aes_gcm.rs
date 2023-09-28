@@ -16,16 +16,19 @@
 //! https://tools.ietf.org/html/rfc7518#section-5.3
 //!
 
-use super::JweEncryption;
+use super::{JweEncryption, KeyWrapOrEncrypt, JweHeader};
 
-use crate::{jwa::EncryptionAlgorithm, Error};
+use crate::{jwa::{JweAlgorithm, EncryptionAlgorithm}, jwk::Jwk, Error};
 
+use ptypes::Base64urlUInt;
+
+use aead::AeadCore;
 use aes::{Aes128, Aes192, Aes256};
 
 use ::aes_gcm::{
+    aead::generic_array::typenum::U12,
     aead::{Aead, Payload},
     AesGcm, Key, KeyInit, Nonce,
-    aead::generic_array::typenum::U12,
 };
 
 use zeroize::Zeroize;
@@ -47,7 +50,6 @@ pub struct AesGcmEncryptor {
 }
 
 impl JweEncryption for AesGcmEncryptor {
-
     fn from_slice(alg: EncryptionAlgorithm, cek: &[u8], iv: &[u8]) -> Result<Self, Error>
     where
         Self: Sized,
@@ -185,6 +187,91 @@ impl Drop for AesGcmEncryptor {
     }
 }
 
+/// AES GCM Key Wrapper.
+pub struct AesGcmKw;
+
+impl KeyWrapOrEncrypt for AesGcmKw {
+
+    fn wrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        use rand_core::OsRng;
+        let key = if let crate::jwk::KeyType::OCT(key_data) = &jwk.key_type {
+            &key_data.key.0
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let iv = AesGcm128::generate_nonce(&mut OsRng);
+        let payload = Payload {
+            msg: cek,
+            aad: b"",
+        };
+        let mut ct = match header.algorithm {
+            JweAlgorithm::A128GCMKW => {
+                let cipher = AesGcm128::new(Key::<AesGcm128>::from_slice(key));
+                cipher.encrypt(&iv, payload)
+                    .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
+            }
+            JweAlgorithm::A192GCMKW => {
+                let cipher = AesGcm192::new(Key::<AesGcm192>::from_slice(key));
+                cipher.encrypt(&iv, payload)
+                    .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
+            }
+            JweAlgorithm::A256GCMKW => {
+                let cipher = AesGcm256::new(Key::<AesGcm256>::from_slice(key));
+                cipher.encrypt(&iv, payload)
+                    .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
+            }
+            _ => return Err(Error::InvalidAlgorithm(header.algorithm.to_string())),
+        };
+        let ct_len = ct.len() - 16;
+        let tag = ct.split_off(ct_len);
+        header.initialization_vector = Some(Base64urlUInt(iv.to_vec()));
+        header.authentication_tag = Some(Base64urlUInt(tag));
+        Ok(ct)
+    }
+
+    fn unwrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        let key = if let crate::jwk::KeyType::OCT(key_data) = &jwk.key_type {
+            &key_data.key.0
+        } else {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        };
+        let iv = if let Some(iv) = &header.initialization_vector {
+            Nonce::from_slice(&iv.0)
+        } else {
+            return Err(Error::InvalidHeader("missing initialization vector for AESGMCKW".to_owned()));
+        };
+        let tag = if let Some(tag) = &header.authentication_tag {
+            &tag.0
+        } else {
+            return Err(Error::InvalidHeader("missing authentication tag for AESGMCKW".to_owned()));
+        };
+        let cipher_text = [cek, tag].concat();
+        let payload = Payload {
+            msg: &cipher_text,
+            aad: b"",
+        };
+        let ct = match header.algorithm {
+            JweAlgorithm::A128GCMKW => {
+                let cipher = AesGcm128::new(Key::<AesGcm128>::from_slice(key));
+                cipher.decrypt(iv, payload)
+                    .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
+            }
+            JweAlgorithm::A192GCMKW => {
+                let cipher = AesGcm192::new(Key::<AesGcm192>::from_slice(key));
+                cipher.decrypt(iv, payload)
+                    .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
+            }
+            JweAlgorithm::A256GCMKW => {
+                let cipher = AesGcm256::new(Key::<AesGcm256>::from_slice(key));
+                cipher.decrypt(iv, payload)
+                    .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
+            }
+            _ => return Err(Error::InvalidAlgorithm(header.algorithm.to_string())),
+        };
+        Ok(ct)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -231,4 +318,40 @@ mod tests {
         let result = enc.decrypt(&ct, &aad, b"1234567890123456");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_aes_gcm_kw() {
+        use crate::{
+            jwa::{EncryptionAlgorithm, JweAlgorithm},
+            jwe::JweHeader,
+            jwk::Jwk,
+        };
+
+        let mut header = JweHeader {
+            algorithm: JweAlgorithm::A128GCMKW,
+            encryption: EncryptionAlgorithm::None,
+            ..Default::default()
+        };
+        let cek = b"0123456789abcdef";
+        let jwk = Jwk::create_oct(b"0123456789abcdef").unwrap();
+        test_aesgcmkw(&mut header, cek, &jwk);
+
+        header.algorithm = JweAlgorithm::A192GCMKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef01234567").unwrap();
+        test_aesgcmkw(&mut header, cek, &jwk);
+
+        header.algorithm = JweAlgorithm::A256GCMKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
+        test_aesgcmkw(&mut header, cek, &jwk);
+
+    }
+
+    fn test_aesgcmkw(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) {
+        let ct = AesGcmKw::wrap_key(header, cek, jwk).unwrap();
+        assert!(header.initialization_vector.is_some());
+        assert!(header.authentication_tag.is_some());
+        let cek2 = AesGcmKw::unwrap_key(header, &ct, jwk).unwrap();
+        assert_eq!(cek, cek2.as_slice());
+    }
+
 }

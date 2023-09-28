@@ -18,10 +18,8 @@
 
 #![deny(missing_docs)]
 
-use super::{
-    JweHeader, Jwk,
-};
-use crate::{error::Error, jwk::KeyType, jwa::JweAlgorithm};
+use super::{JweHeader, Jwk};
+use crate::{error::Error, jwa::JweAlgorithm, jwk::KeyType};
 
 /// ECDH Key Agreement.
 pub fn key_agreement(jwk: &Jwk) -> Result<(Vec<u8>, Jwk), Error> {
@@ -82,7 +80,7 @@ pub fn derive_key(header: &JweHeader, key: &[u8]) -> Result<Vec<u8>, Error> {
     } else {
         (header.algorithm.size(), header.algorithm.to_string())
     };
-    
+
     let alg_len = (alg_id.len() as u32).to_be_bytes();
     let apu = header.agreement_partyuinfo.clone().unwrap_or(String::new());
     let apu_len = (apu.len() as u32).to_be_bytes();

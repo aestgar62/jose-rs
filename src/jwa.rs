@@ -151,19 +151,13 @@ impl JweAlgorithm {
     /// When Key Wrapping, Key Encryption, or Key Agreement with Key
     /// Wrapping are employed return false.
     pub fn is_direct(&self) -> bool {
-        match self {
-            Self::Dir | Self::ECDHES => true,
-            _ => false,
-        }
+        matches!(self, Self::Dir | Self::ECDHES)
     }
 
     /// When Direct Key Agreement or Key Agreement with Key Wrapping are
     /// employed return true.
     pub fn is_key_agreement(&self) -> bool {
-        match self {
-            Self::ECDHES | Self::ECDHESA128KW | Self::ECDHESA192KW | Self::ECDHESA256KW => true,
-            _ => false,
-        }
+        matches!(self, Self::ECDHES | Self::ECDHESA128KW | Self::ECDHESA192KW | Self::ECDHESA256KW)
     }
 
     /// Key size in bytes or 0 if not applicable.
