@@ -132,22 +132,24 @@ pub enum JweAlgorithm {
     /// PBES2 with HMAC SHA-512 and "A256KW" wrapping
     #[serde(rename = "PBES2-HS512+A256KW")]
     PBES2HS512A256KW,
-    /// None algorithm
+    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 96 bit nonce wrapping.
+    #[serde(rename = "C20PKW")]
+    C20PKW,
+    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 192 bit nonce wrapping.
+    #[serde(rename = "XC20PKW")]
+    XC20PKW,
+    /// ECDH-ES using Concat KDF and CEK wrapped with "C20PKW"
+    #[serde(rename = "ECDH-ES+C20PKW")]
+    ECDHESC20PKW,
+    /// ECDH-ES using Concat KDF and CEK wrapped with "XC20PKW"
+    #[serde(rename = "ECDH-ES+XC20PKW")]
+    ECDHESXC20PKW,
+    /// None algorithm.
     #[serde(rename = "none", alias = "None")]
     None,
 }
 
 impl JweAlgorithm {
-    /// Enumeration values to iterate.
-    pub const VALUES: [Self; 6] = [
-        Self::RSA1_5,
-        Self::RSAOAEP,
-        Self::RSAOAEP256,
-        Self::A128KW,
-        Self::A192KW,
-        Self::A256KW,
-    ];
-
     /// When Key Wrapping, Key Encryption, or Key Agreement with Key
     /// Wrapping are employed return false.
     pub fn is_direct(&self) -> bool {
@@ -157,15 +159,21 @@ impl JweAlgorithm {
     /// When Direct Key Agreement or Key Agreement with Key Wrapping are
     /// employed return true.
     pub fn is_key_agreement(&self) -> bool {
-        matches!(self, Self::ECDHES | Self::ECDHESA128KW | Self::ECDHESA192KW | Self::ECDHESA256KW)
+        matches!(
+            self,
+            Self::ECDHES
+                | Self::ECDHESA128KW
+                | Self::ECDHESA192KW
+                | Self::ECDHESA256KW
+                | Self::ECDHESC20PKW
+                | Self::ECDHESXC20PKW
+        )
     }
 
     /// Key size in bytes or 0 if not applicable.
     pub fn size(&self) -> usize {
         match self {
-            Self::RSA1_5 => 32,
-            Self::RSAOAEP => 32,
-            Self::RSAOAEP256 => 32,
+            Self::RSA1_5 | Self::RSAOAEP | Self::RSAOAEP256 => 32,
             Self::A128KW => 16,
             Self::A192KW => 24,
             Self::A256KW => 32,
@@ -180,6 +188,7 @@ impl JweAlgorithm {
             Self::PBES2HS256A128KW => 16,
             Self::PBES2HS384A192KW => 24,
             Self::PBES2HS512A256KW => 32,
+            Self::C20PKW | Self::XC20PKW | Self::ECDHESC20PKW | Self::ECDHESXC20PKW => 32,
             Self::None => 0,
         }
     }
@@ -211,6 +220,10 @@ impl fmt::Display for JweAlgorithm {
             Self::PBES2HS256A128KW => write!(f, "PBES2-HS256+A128KW"),
             Self::PBES2HS384A192KW => write!(f, "PBES2-HS384+A192KW"),
             Self::PBES2HS512A256KW => write!(f, "PBES2-HS512+A256KW"),
+            Self::C20PKW => write!(f, "C20PKW"),
+            Self::XC20PKW => write!(f, "XC20PKW"),
+            Self::ECDHESC20PKW => write!(f, "ECDH-ES+C20PKW"),
+            Self::ECDHESXC20PKW => write!(f, "ECDH-ES+XC20PKW"),
             Self::None => write!(f, "none"),
         }
     }
@@ -246,12 +259,9 @@ pub enum EncryptionAlgorithm {
     /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 96 bit nonce.
     #[serde(rename = "C20P")]
     C20P,
-    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 192 bit nonce.
-    #[serde(rename = "C20P192")]
-    C20P192,
-    /// ChaCha20-Poly1305 AEAD algorithm with a 256 bit key and a 256 bit nonce.
-    #[serde(rename = "C20P256")]
-    C20P256,
+    /// ChaCha20-Poly1305 AEAD algorithm with a 192 bit key and a 64 bit nonce.
+    #[serde(rename = "XC20P")]
+    XC20P,
     /// None algorithm
     #[serde(rename = "none", alias = "None")]
     None,
@@ -259,13 +269,15 @@ pub enum EncryptionAlgorithm {
 
 impl EncryptionAlgorithm {
     /// Enumeration values to iterate
-    pub const VALUES: [Self; 6] = [
+    pub const VALUES: [Self; 8] = [
         Self::A128CBCHS256,
         Self::A192CBCHS384,
         Self::A256CBCHS512,
         Self::A128GCM,
         Self::A192GCM,
         Self::A256GCM,
+        Self::C20P,
+        Self::XC20P,
     ];
 
     /// Get the key size in bytes.
@@ -278,8 +290,7 @@ impl EncryptionAlgorithm {
             Self::A192GCM => 24,
             Self::A256GCM => 32,
             Self::C20P => 32,
-            Self::C20P192 => 24,
-            Self::C20P256 => 32,
+            Self::XC20P => 32,
             Self::None => 0,
         }
     }
@@ -301,8 +312,7 @@ impl fmt::Display for EncryptionAlgorithm {
             Self::A192GCM => write!(f, "A192GCM"),
             Self::A256GCM => write!(f, "A256GCM"),
             Self::C20P => write!(f, "C20P"),
-            Self::C20P192 => write!(f, "C20P192"),
-            Self::C20P256 => write!(f, "C20P256"),
+            Self::XC20P => write!(f, "XC20P"),
             Self::None => write!(f, "none"),
         }
     }

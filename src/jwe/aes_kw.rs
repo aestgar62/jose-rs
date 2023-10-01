@@ -86,7 +86,7 @@ pub fn aeskw_wrap(alg: &JweAlgorithm, payload: &[u8], key: &[u8]) -> Result<Vec<
 /// AES Key Unwrap.
 pub fn aeskw_unwrap(alg: &JweAlgorithm, ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
     match alg {
-        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW | JweAlgorithm::PBES2HS256A128KW=> {
+        JweAlgorithm::A128KW | JweAlgorithm::ECDHESA128KW | JweAlgorithm::PBES2HS256A128KW => {
             let wrapper = Kek::<Aes128>::try_from(key)
                 .map_err(|_| Error::InvalidKey("size != 16".to_string()))?;
             Ok(wrapper

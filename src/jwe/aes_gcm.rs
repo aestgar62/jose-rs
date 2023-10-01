@@ -16,9 +16,13 @@
 //! https://tools.ietf.org/html/rfc7518#section-5.3
 //!
 
-use super::{JweEncryption, KeyWrapOrEncrypt, JweHeader};
+use super::{JweEncryption, JweHeader, KeyWrapOrEncrypt};
 
-use crate::{jwa::{JweAlgorithm, EncryptionAlgorithm}, jwk::Jwk, Error};
+use crate::{
+    jwa::{EncryptionAlgorithm, JweAlgorithm},
+    jwk::Jwk,
+    Error,
+};
 
 use ptypes::Base64urlUInt;
 
@@ -92,58 +96,50 @@ impl JweEncryption for AesGcmEncryptor {
 
     /// AES GCM encryption.
     fn encrypt(&self, content: &[u8], aad: &[u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        match self.alg {
+        let payload = Payload { msg: content, aad };
+        let mut ct = match self.alg {
             EncryptionAlgorithm::A128GCM => {
                 let key = Key::<AesGcm128>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let payload = Payload { msg: content, aad };
                 let cipher = AesGcm128::new(key);
-                let mut ct = cipher
+                cipher
                     .encrypt(nonce, payload)
-                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?;
-                let ct_len = ct.len() - 16;
-                let tag = ct.split_off(ct_len);
-                Ok((ct, tag))
+                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?
             }
             EncryptionAlgorithm::A192GCM => {
                 let key = Key::<AesGcm192>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let payload = Payload { msg: content, aad };
                 let cipher = AesGcm192::new(key);
-                let mut ct = cipher
+                cipher
                     .encrypt(nonce, payload)
-                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?;
-                let ct_len = ct.len() - 16;
-                let tag = ct.split_off(ct_len);
-                Ok((ct, tag))
+                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?
             }
             EncryptionAlgorithm::A256GCM => {
                 let key = Key::<AesGcm256>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let payload = Payload { msg: content, aad };
                 let cipher = AesGcm256::new(key);
-                let mut ct = cipher
+                cipher
                     .encrypt(nonce, payload)
-                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?;
-                let ct_len = ct.len() - 16;
-                let tag = ct.split_off(ct_len);
-                Ok((ct, tag))
+                    .map_err(|_| Error::Encrypt("AES GCM".to_string()))?
             }
-            _ => Err(Error::InvalidAlgorithm(self.alg.to_string())),
-        }
+            _ => return Err(Error::InvalidAlgorithm(self.alg.to_string())),
+        };
+        let ct_len = ct.len() - 16;
+        let tag = ct.split_off(ct_len);
+        Ok((ct, tag))
     }
 
     /// AES GCM decryption.
     fn decrypt(&self, content: &[u8], aad: &[u8], at: &[u8]) -> Result<Vec<u8>, Error> {
+        let ciphertext = [content, at].concat();
+        let payload = Payload {
+            msg: &ciphertext,
+            aad,
+        };
         match self.alg {
             EncryptionAlgorithm::A128GCM => {
                 let key = Key::<AesGcm128>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let ciphertext = [content, at].concat();
-                let payload = Payload {
-                    msg: &ciphertext,
-                    aad,
-                };
                 let cipher = AesGcm128::new(key);
                 cipher
                     .decrypt(nonce, payload)
@@ -152,11 +148,6 @@ impl JweEncryption for AesGcmEncryptor {
             EncryptionAlgorithm::A192GCM => {
                 let key = Key::<AesGcm192>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let ciphertext = [content, at].concat();
-                let payload = Payload {
-                    msg: &ciphertext,
-                    aad,
-                };
                 let cipher = AesGcm192::new(key);
                 cipher
                     .decrypt(nonce, payload)
@@ -165,11 +156,6 @@ impl JweEncryption for AesGcmEncryptor {
             EncryptionAlgorithm::A256GCM => {
                 let key = Key::<AesGcm256>::from_slice(&self.key);
                 let nonce = Nonce::from_slice(&self.iv);
-                let ciphertext = [content, at].concat();
-                let payload = Payload {
-                    msg: &ciphertext,
-                    aad,
-                };
                 let cipher = AesGcm256::new(key);
                 cipher
                     .decrypt(nonce, payload)
@@ -191,7 +177,6 @@ impl Drop for AesGcmEncryptor {
 pub struct AesGcmKw;
 
 impl KeyWrapOrEncrypt for AesGcmKw {
-
     fn wrap_key(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
         use rand_core::OsRng;
         let key = if let crate::jwk::KeyType::OCT(key_data) = &jwk.key_type {
@@ -200,24 +185,24 @@ impl KeyWrapOrEncrypt for AesGcmKw {
             return Err(Error::InvalidKey(jwk.key_type.to_string()));
         };
         let iv = AesGcm128::generate_nonce(&mut OsRng);
-        let payload = Payload {
-            msg: cek,
-            aad: b"",
-        };
+        let payload = Payload { msg: cek, aad: b"" };
         let mut ct = match header.algorithm {
             JweAlgorithm::A128GCMKW => {
                 let cipher = AesGcm128::new(Key::<AesGcm128>::from_slice(key));
-                cipher.encrypt(&iv, payload)
+                cipher
+                    .encrypt(&iv, payload)
                     .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
             }
             JweAlgorithm::A192GCMKW => {
                 let cipher = AesGcm192::new(Key::<AesGcm192>::from_slice(key));
-                cipher.encrypt(&iv, payload)
+                cipher
+                    .encrypt(&iv, payload)
                     .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
             }
             JweAlgorithm::A256GCMKW => {
                 let cipher = AesGcm256::new(Key::<AesGcm256>::from_slice(key));
-                cipher.encrypt(&iv, payload)
+                cipher
+                    .encrypt(&iv, payload)
                     .map_err(|_| Error::Encrypt(header.algorithm.to_string()))?
             }
             _ => return Err(Error::InvalidAlgorithm(header.algorithm.to_string())),
@@ -238,12 +223,16 @@ impl KeyWrapOrEncrypt for AesGcmKw {
         let iv = if let Some(iv) = &header.initialization_vector {
             Nonce::from_slice(&iv.0)
         } else {
-            return Err(Error::InvalidHeader("missing initialization vector for AESGMCKW".to_owned()));
+            return Err(Error::InvalidHeader(
+                "missing initialization vector for AESGMCKW".to_owned(),
+            ));
         };
         let tag = if let Some(tag) = &header.authentication_tag {
             &tag.0
         } else {
-            return Err(Error::InvalidHeader("missing authentication tag for AESGMCKW".to_owned()));
+            return Err(Error::InvalidHeader(
+                "missing authentication tag for AESGMCKW".to_owned(),
+            ));
         };
         let cipher_text = [cek, tag].concat();
         let payload = Payload {
@@ -253,17 +242,20 @@ impl KeyWrapOrEncrypt for AesGcmKw {
         let ct = match header.algorithm {
             JweAlgorithm::A128GCMKW => {
                 let cipher = AesGcm128::new(Key::<AesGcm128>::from_slice(key));
-                cipher.decrypt(iv, payload)
+                cipher
+                    .decrypt(iv, payload)
                     .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
             }
             JweAlgorithm::A192GCMKW => {
                 let cipher = AesGcm192::new(Key::<AesGcm192>::from_slice(key));
-                cipher.decrypt(iv, payload)
+                cipher
+                    .decrypt(iv, payload)
                     .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
             }
             JweAlgorithm::A256GCMKW => {
                 let cipher = AesGcm256::new(Key::<AesGcm256>::from_slice(key));
-                cipher.decrypt(iv, payload)
+                cipher
+                    .decrypt(iv, payload)
                     .map_err(|_| Error::Decrypt(header.algorithm.to_string()))?
             }
             _ => return Err(Error::InvalidAlgorithm(header.algorithm.to_string())),
@@ -343,7 +335,6 @@ mod tests {
         header.algorithm = JweAlgorithm::A256GCMKW;
         let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
         test_aesgcmkw(&mut header, cek, &jwk);
-
     }
 
     fn test_aesgcmkw(header: &mut JweHeader, cek: &[u8], jwk: &Jwk) {
@@ -353,5 +344,4 @@ mod tests {
         let cek2 = AesGcmKw::unwrap_key(header, &ct, jwk).unwrap();
         assert_eq!(cek, cek2.as_slice());
     }
-
 }

@@ -37,6 +37,9 @@ mod ecdh;
 #[cfg(feature = "jwe-pbkdf2-kw")]
 mod pbkdf2;
 
+#[cfg(feature = "jwe-chachapoly")]
+mod chachapoly;
+
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
     jwk::{Jwk, KeyType},
@@ -314,6 +317,7 @@ impl JweBuilder {
     pub fn encrypt(&mut self) -> Result<(), Error> {
         let aad = self.header.to_aad()?;
         match self.header.encryption {
+            #[cfg(feature = "jwe-aes-cbc")]
             EncryptionAlgorithm::A128CBCHS256
             | EncryptionAlgorithm::A192CBCHS384
             | EncryptionAlgorithm::A256CBCHS512 => {
@@ -331,6 +335,7 @@ impl JweBuilder {
                 self.at = at;
                 Ok(())
             }
+            #[cfg(feature = "jwe-aes-gcm")]
             EncryptionAlgorithm::A128GCM
             | EncryptionAlgorithm::A192GCM
             | EncryptionAlgorithm::A256GCM => {
@@ -348,11 +353,19 @@ impl JweBuilder {
                 self.at = at;
                 Ok(())
             }
-            _ => {
-                Err(Error::UnimplementedAlgorithm(
-                    self.header.encryption.to_string(),
-                ))
+            #[cfg(feature = "jwe-chachapoly")]
+            EncryptionAlgorithm::C20P | EncryptionAlgorithm::XC20P => {
+                let encryptor =
+                    chachapoly::ChachaPolyEncrytor::new(self.header.encryption, &self.cek)?;
+                self.iv = encryptor.iv.clone();
+                let (ct, at) = encryptor.encrypt(&self.payload, &aad)?;
+                self.ciphertext = ct;
+                self.at = at;
+                Ok(())
             }
+            _ => Err(Error::UnimplementedAlgorithm(
+                self.header.encryption.to_string(),
+            )),
         }
     }
 
@@ -360,6 +373,7 @@ impl JweBuilder {
     pub fn decrypt(&mut self) -> Result<(), Error> {
         let aad = self.header.to_aad()?;
         match self.header.encryption {
+            #[cfg(feature = "jwe-aes-cbc")]
             EncryptionAlgorithm::A128CBCHS256
             | EncryptionAlgorithm::A192CBCHS384
             | EncryptionAlgorithm::A256CBCHS512 => {
@@ -372,6 +386,7 @@ impl JweBuilder {
                 self.payload = pt;
                 Ok(())
             }
+            #[cfg(feature = "jwe-aes-gcm")]
             EncryptionAlgorithm::A128GCM
             | EncryptionAlgorithm::A192GCM
             | EncryptionAlgorithm::A256GCM => {
@@ -384,11 +399,20 @@ impl JweBuilder {
                 self.payload = pt;
                 Ok(())
             }
-            _ => {
-                Err(Error::UnimplementedAlgorithm(
-                    self.header.encryption.to_string(),
-                ))
+            #[cfg(feature = "jwe-chachapoly")]
+            EncryptionAlgorithm::C20P | EncryptionAlgorithm::XC20P => {
+                let decryptor = chachapoly::ChachaPolyEncrytor::from_slice(
+                    self.header.encryption,
+                    &self.cek,
+                    &self.iv,
+                )?;
+                let pt = decryptor.decrypt(&self.ciphertext, &aad, &self.at)?;
+                self.payload = pt;
+                Ok(())
             }
+            _ => Err(Error::UnimplementedAlgorithm(
+                self.header.encryption.to_string(),
+            )),
         }
     }
 
@@ -408,17 +432,26 @@ impl JweBuilder {
             JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
                 rsa_enc::RsaEncrypt::wrap_key(&mut self.header, &self.cek, jwk)?,
             ),
-            JweAlgorithm::A128GCMKW
-            | JweAlgorithm::A192GCMKW
-            | JweAlgorithm::A256GCMKW => {
-                Ok(aes_gcm::AesGcmKw::wrap_key(&mut self.header, &self.cek, jwk)?)
-            }
+            #[cfg(feature = "jwe-aes-gcm")]
+            JweAlgorithm::A128GCMKW | JweAlgorithm::A192GCMKW | JweAlgorithm::A256GCMKW => Ok(
+                aes_gcm::AesGcmKw::wrap_key(&mut self.header, &self.cek, jwk)?,
+            ),
+            #[cfg(feature = "jwe-pbkdf2-kw")]
             JweAlgorithm::PBES2HS256A128KW
             | JweAlgorithm::PBES2HS384A192KW
             | JweAlgorithm::PBES2HS512A256KW => {
                 let key = pbkdf2::derive_key(&self.header, jwk)?;
                 Ok(aes_kw::aeskw_wrap(&self.header.algorithm, &self.cek, &key)?)
-            },
+            }
+            #[cfg(feature = "jwe-chachapoly")]            
+            JweAlgorithm::C20PKW
+            | JweAlgorithm::XC20PKW
+            | JweAlgorithm::ECDHESC20PKW
+            | JweAlgorithm::ECDHESXC20PKW => Ok(chachapoly::ChachaPolyKeyWrap::wrap_key(
+                &mut self.header,
+                &self.cek,
+                jwk,
+            )?),
             _ => Err(Error::UnimplementedAlgorithm(
                 self.header.algorithm.to_string(),
             )),
@@ -441,18 +474,27 @@ impl JweBuilder {
             JweAlgorithm::RSA1_5 | JweAlgorithm::RSAOAEP | JweAlgorithm::RSAOAEP256 => Ok(
                 rsa_enc::RsaEncrypt::unwrap_key(&mut self.header, &self.kek, jwk)?,
             ),
-            JweAlgorithm::A128GCMKW
-            | JweAlgorithm::A192GCMKW
-            | JweAlgorithm::A256GCMKW => {
-                Ok(aes_gcm::AesGcmKw::unwrap_key(&mut self.header, &self.kek, jwk)?)
-            },
+            #[cfg(feature = "jwe-aes-gcm")]
+            JweAlgorithm::A128GCMKW | JweAlgorithm::A192GCMKW | JweAlgorithm::A256GCMKW => Ok(
+                aes_gcm::AesGcmKw::unwrap_key(&mut self.header, &self.kek, jwk)?,
+            ),
+            #[cfg(feature = "jwe-pbkdf2-kw")]
             JweAlgorithm::PBES2HS256A128KW
             | JweAlgorithm::PBES2HS384A192KW
             | JweAlgorithm::PBES2HS512A256KW => {
                 let key = pbkdf2::derive_key(&self.header, jwk)?;
                 let result = aes_kw::aeskw_unwrap(&self.header.algorithm, &self.kek, &key);
                 Ok(result?)
-            },
+            }
+            #[cfg(feature = "jwe-chachapoly")]            
+            JweAlgorithm::C20PKW
+            | JweAlgorithm::XC20PKW
+            | JweAlgorithm::ECDHESC20PKW
+            | JweAlgorithm::ECDHESXC20PKW => Ok(chachapoly::ChachaPolyKeyWrap::unwrap_key(
+                &mut self.header,
+                &self.kek,
+                jwk,
+            )?),
             _ => Err(Error::UnimplementedAlgorithm(
                 self.header.algorithm.to_string(),
             )),
@@ -680,6 +722,13 @@ mod tests {
 
         header.algorithm = JweAlgorithm::PBES2HS512A256KW;
         test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::C20PKW;
+        let jwk = Jwk::create_oct(b"0123456789abcdef0123456789abcdef").unwrap();
+        test_encrypt_decrypt(&mut header, &jwk, payload);
+
+        header.algorithm = JweAlgorithm::XC20PKW;
+        test_encrypt_decrypt(&mut header, &jwk, payload);
     }
 
     fn test_encrypt_decrypt(header: &mut JweHeader, jwk: &Jwk, payload: &[u8]) {
@@ -733,6 +782,12 @@ mod tests {
         test_build_extract_key_agreement(&mut header, payload);
 
         header.algorithm = JweAlgorithm::ECDHESA256KW;
+        test_build_extract_key_agreement(&mut header, payload);
+
+        header.algorithm = JweAlgorithm::ECDHESC20PKW;
+        test_build_extract_key_agreement(&mut header, payload);
+
+        header.algorithm = JweAlgorithm::ECDHESXC20PKW;
         test_build_extract_key_agreement(&mut header, payload);
     }
 

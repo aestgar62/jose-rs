@@ -1,6 +1,6 @@
 [package]
 name = "jose-rs"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Antonio Estévez <aestgar62@gmail.com>"]
 edition = "2021"
 
@@ -11,10 +11,10 @@ aes-gcm = { version = "0.10", optional = true }
 aes-kw = { version = "0.2", optional = true }
 base64 = "0.21"
 cbc = { version = "0.1", optional = true }
+chacha20poly1305 = { version = "0.10", optional = true }
 concat-kdf = { version = "0.1", optional = true }
 ed25519-dalek = { version = "2.0", optional = true }
 elliptic-curve = { version = "0.13", optional = true }
-#generic-array = "0.14"
 getrandom = "0.2"
 k256 = { version = "0.13", optional = true }
 hmac = { version = "0.12", optional = true }
@@ -52,6 +52,7 @@ default = [
     "jwe-rsa-kw",
     "jwe-ecdh-kw",
     "jwe-pbkdf2-kw",
+    "jwe-chachapoly",
     ]
 jwk-all = ["jwk-rsa"]
 jwk-ecdsa-all = ["jwk-k256", "jwk-p256", "jwk-p384", "jwk-p521"]
@@ -76,3 +77,4 @@ jwe-aes-gcm = ["jwe-aes", "aes-gcm", "aes-gcm/alloc"]
 jwe-rsa-kw = ["jwe", "jwk-rsa", "sha1"]
 jwe-ecdh-kw = ["jwe", "jwk-ec", "concat-kdf", "concat-kdf/std", "sha2"]
 jwe-pbkdf2-kw = ["jwe", "pbkdf2", "sha2", "pbkdf2/hmac"]
+jwe-chachapoly = ["jwe", "jwk-oct", "chacha20poly1305", "chacha20poly1305/alloc", "rand_core", "rand"]
