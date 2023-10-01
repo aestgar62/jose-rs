@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2023-10-01
+
+### Added
+
+- Add CHANGELOG.md
+- Add core jwe
+- Add core jwe
+- Add aes-kw wrapping
+- Add refactoring JWE
+- Add jwe key agreement
+- Add AESGMCKW in JWE
+- Add ChaChaPoly jwe
+
+### Documentation
+
+- Update README.md
+
+### Features
+
+- Refactoring jwe
+- Refactoring code
+
 ## [0.2.0] - 2023-08-29
 
 ### Added
