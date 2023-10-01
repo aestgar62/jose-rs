@@ -99,17 +99,35 @@ mod tests {
     fn test_wrap_key() {
         let mut header = JweHeader::new(JweAlgorithm::RSA1_5, Default::default());
         let jwk = Jwk::create_rsa().unwrap();
+        let jwk_err = Jwk::create_oct(b"0123456789abcdef").unwrap();
         let cek = vec![0u8; 32];
         let wk = RsaEncrypt::wrap_key(&mut header, &cek, &jwk).unwrap();
         let uk = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek, uk);
+        let wk_err = RsaEncrypt::wrap_key(&mut header, &cek, &jwk_err);
+        assert!(wk_err.is_err());
+        let uk_err = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk_err);
+        assert!(uk_err.is_err());
         header.algorithm = JweAlgorithm::RSAOAEP;
         let wk = RsaEncrypt::wrap_key(&mut header, &cek, &jwk).unwrap();
         let uk = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek, uk);
+        let wk_err = RsaEncrypt::wrap_key(&mut header, &cek, &jwk_err);
+        assert!(wk_err.is_err());
+        let uk_err = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk_err);
+        assert!(uk_err.is_err());
         header.algorithm = JweAlgorithm::RSAOAEP256;
         let wk = RsaEncrypt::wrap_key(&mut header, &cek, &jwk).unwrap();
         let uk = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk).unwrap();
         assert_eq!(cek, uk);
+        let wk_err = RsaEncrypt::wrap_key(&mut header, &cek, &jwk_err);
+        assert!(wk_err.is_err());
+        let uk_err = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk_err);
+        assert!(uk_err.is_err());
+        header.algorithm = JweAlgorithm::None;
+        let wk_err = RsaEncrypt::wrap_key(&mut header, &cek, &jwk);
+        assert!(wk_err.is_err());
+        let uk_err = RsaEncrypt::unwrap_key(&mut header, &wk, &jwk);
+        assert!(uk_err.is_err());
     }
 }
