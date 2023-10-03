@@ -57,10 +57,15 @@ impl KeyWrapOrEncrypt for RsaEncrypt {
             }
             _ => return Err(Error::InvalidAlgorithm(header.algorithm.to_string())),
         };
+        header.jwk = Some(jwk.clone().public());
         Ok(wk)
     }
 
     fn unwrap_key(header: &mut JweHeader, wk: &[u8], jwk: &Jwk) -> Result<Vec<u8>, Error> {
+        let public_key = jwk.clone().public();
+        if header.jwk != Some(public_key) {
+            return Err(Error::InvalidKey(jwk.key_type.to_string()));
+        }
         let key = if let KeyType::RSA(key_data) = &jwk.key_type {
             key_data
         } else {

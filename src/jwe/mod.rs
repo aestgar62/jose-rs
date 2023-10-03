@@ -40,6 +40,11 @@ mod pbkdf2;
 #[cfg(feature = "jwe-chachapoly")]
 mod chachapoly;
 
+use std::{
+    fmt::Display,
+    io::{Read, Write},
+};
+
 use crate::{
     jwa::{EncryptionAlgorithm, JweAlgorithm},
     jwk::{Jwk, KeyType},
@@ -67,7 +72,7 @@ pub struct JweHeader {
     /// The "zip" (compression algorithm) Header Parameter indicates whether the plaintext
     /// has been compressed before encryption.
     #[serde(rename = "zip", skip_serializing_if = "Option::is_none")]
-    pub compression: Option<String>,
+    pub compression: Option<CompressionAlgorithm>,
     /// The "jku" (JWK Set URL) Header Parameter is a URI that refers to a resource for a set of
     /// JSON-encoded public keys, one of which corresponds to the key used to encrypt the JWE.
     #[serde(rename = "jku", skip_serializing_if = "Option::is_none")]
@@ -138,6 +143,31 @@ pub struct JweHeader {
     /// used as the authentication tag when using the "A128GCMKW", "A192GCMKW" and "A256GCMKW".
     #[serde(rename = "tag", skip_serializing_if = "Option::is_none")]
     pub authentication_tag: Option<Base64urlUInt>,
+}
+
+/// Compression algorithm.
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum CompressionAlgorithm {
+    /// DEFLATE compression algorithm.
+    #[serde(rename = "DEF")]
+    #[default]
+    Deflate,
+    /// GZIP compression algorithm.
+    #[serde(rename = "GZIP")]
+    Gzip,
+    /// ZLIB compression algorithm.
+    #[serde(rename = "ZLIB")]
+    Zlib,
+}
+
+impl Display for CompressionAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CompressionAlgorithm::Deflate => write!(f, "DEF"),
+            CompressionAlgorithm::Gzip => write!(f, "GZIP"),
+            CompressionAlgorithm::Zlib => write!(f, "ZLIB"),
+        }
+    }
 }
 
 impl JweHeader {
@@ -529,6 +559,65 @@ pub fn encode_compact_jwe(
     builder.compact_jwe()
 }
 
+/// Zip payload 
+pub fn zip_payload(alg: CompressionAlgorithm, payload: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut buffer = Vec::new();
+    match alg {
+        CompressionAlgorithm::Deflate => {
+            let mut encoder = libflate::deflate::Encoder::new(&mut buffer);
+            encoder.write_all(payload)
+                .map_err(|_| Error::Encode("deflate error".to_owned()))?;
+            encoder.finish()
+                .as_result()
+                .map_err(|_| Error::Encode("deflate error".to_owned()))?;
+        }
+        CompressionAlgorithm::Gzip => {
+            let mut encoder = libflate::gzip::Encoder::new(&mut buffer)
+                .map_err(|_| Error::Encode("gzip error".to_owned()))?;
+            encoder.write_all(payload)
+                .map_err(|_| Error::Encode("gzip error".to_owned()))?;
+            encoder.finish()
+                .as_result()
+                .map_err(|_| Error::Encode("gzip error".to_owned()))?;
+        }
+        CompressionAlgorithm::Zlib => {
+            let mut encoder = libflate::zlib::Encoder::new(&mut buffer)
+                .map_err(|_| Error::Encode("zlib error".to_owned()))?;
+            encoder.write_all(payload)
+                .map_err(|_| Error::Encode("zlib error".to_owned()))?;
+            encoder.finish()
+                .as_result()
+                .map_err(|_| Error::Encode("zlib error".to_owned()))?;
+        }
+    }
+    Ok(buffer)
+}
+
+/// Unzip payload
+pub fn unzip_payload(alg: CompressionAlgorithm, payload: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut buffer = Vec::new();
+    match alg {
+        CompressionAlgorithm::Deflate => {
+            let mut decoder = libflate::deflate::Decoder::new(payload);
+            decoder.read_to_end(&mut buffer)
+                .map_err(|_| Error::Decode("deflate error".to_owned()))?;
+        }
+        CompressionAlgorithm::Gzip => {
+            let mut decoder = libflate::gzip::Decoder::new(payload)
+                .map_err(|_| Error::Decode("gzip error".to_owned()))?;
+            decoder.read_to_end(&mut buffer)
+                .map_err(|_| Error::Decode("gzip error".to_owned()))?;
+        }
+        CompressionAlgorithm::Zlib => {
+            let mut decoder = libflate::zlib::Decoder::new(payload)
+                .map_err(|_| Error::Decode("zlib error".to_owned()))?;
+            decoder.read_to_end(&mut buffer)
+                .map_err(|_| Error::Decode("zlib error".to_owned()))?;
+        }
+    }
+    Ok(buffer)
+}
+
 /// JSON Web Encryption (JWE) represents encrypted content using JSON-based data structures.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct JweJson {
@@ -648,6 +737,23 @@ mod tests {
 
     use super::*;
     use crate::utils::base64_encode_json;
+
+    #[test]
+    fn test_zip_unzip_payload() {
+        let payload = b"Hello world!";
+        let alg = CompressionAlgorithm::Deflate;
+        let zipped = zip_payload(alg.clone(), payload).unwrap();
+        let unzipped = unzip_payload(alg, &zipped).unwrap();
+        assert_eq!(payload, unzipped.as_slice());
+        let alg = CompressionAlgorithm::Gzip;
+        let zipped = zip_payload(alg.clone(), payload).unwrap();
+        let unzipped = unzip_payload(alg, &zipped).unwrap();
+        assert_eq!(payload, unzipped.as_slice());
+        let alg = CompressionAlgorithm::Zlib;
+        let zipped = zip_payload(alg.clone(), payload).unwrap();
+        let unzipped = unzip_payload(alg, &zipped).unwrap();
+        assert_eq!(payload, unzipped.as_slice());
+    }
 
     #[test]
     fn test_jwe_header_default() {

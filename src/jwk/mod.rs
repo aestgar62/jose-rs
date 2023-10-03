@@ -293,6 +293,33 @@ impl Jwk {
     pub fn key_type(&self) -> &'static str {
         self.key_type.key_type()
     }
+
+    /// Returns public key 
+    pub fn public(&self) -> Jwk {
+        let mut jwk = self.clone();
+        match &mut jwk.key_type {
+            #[cfg(feature = "jwk-rsa")]
+            KeyType::RSA(data) => {
+                data.private_exponent = None;
+                data.first_prime_factor = None;
+                data.second_prime_factor = None;
+                data.first_prime_factor_crt_exponent = None;
+                data.second_prime_factor_crt_exponent = None;
+                data.first_crt_coefficient = None;
+                data.other_primes_info = None;
+            }
+            #[cfg(feature = "jwk-eddsa")]
+            KeyType::OKP(data) => {
+                data.private_key = None;
+            }
+            #[cfg(feature = "jwk-ec")]
+            KeyType::EC(data) => {
+                data.ec_private_key = None;
+            }
+            KeyType::OCT(_) => {}
+        }
+        jwk
+    }
 }
 
 #[cfg(test)]
